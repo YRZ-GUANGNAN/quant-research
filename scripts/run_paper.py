@@ -43,8 +43,11 @@ def main() -> int:
     ap.add_argument("--cash", type=float, default=1_000_000.0)
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--fetch", action="store_true")
-    ap.add_argument("--topk", type=int, default=30)
-    ap.add_argument("--rebalance", type=int, default=20)
+    ap.add_argument("--topk", type=int, default=40)
+    ap.add_argument("--rebalance", type=int, default=35)
+    ap.add_argument("--ensemble", action="store_true", default=True,
+                    help="使用相位不变组合（模型 v3 默认）")
+    ap.add_argument("--no-ensemble", dest="ensemble", action="store_false")
     args = ap.parse_args()
 
     ensure_dirs()
@@ -57,7 +60,15 @@ def main() -> int:
 
     cfg = BacktestConfig(index_code=args.index, top_k=args.topk, rebalance_days=args.rebalance)
     panel = Panel.load(index_code=args.index)
-    strategy = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS[args.strategy])
+    if args.ensemble:
+        from quant.strategies.ensemble import PhaseEnsembleStrategy
+
+        strategy = PhaseEnsembleStrategy(
+            panel=panel, cfg=cfg, name=args.strategy, warmup=130
+        )
+        print(f"[paper] 模型：相位不变组合（{len(strategy.offsets)} 相位共识）")
+    else:
+        strategy = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS[args.strategy])
 
     if args.reset:
         PaperState.path().unlink(missing_ok=True)

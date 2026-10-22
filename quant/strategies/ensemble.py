@@ -53,6 +53,8 @@ class PhaseEnsembleStrategy:
     buffer_ratio: float = 1.0
     timing: bool = False
     vol_target: float | None = None
+    min_exposure: float = 0.0
+    vol_cap: float | None = None
     # 主组合执行节奏：True = 每个交易日都用共识权重校准（相位无关），
     # 靠撮合层的无交易带（偏离 15%/20% 才动手）抑制换手。
     master_daily: bool = True
@@ -68,6 +70,8 @@ class PhaseEnsembleStrategy:
                 buffer_ratio=self.buffer_ratio,
                 timing=self.timing,
                 vol_target=self.vol_target,
+                min_exposure=self.min_exposure,
+                vol_cap=self.vol_cap,
             )
             for off in self.offsets
         ]

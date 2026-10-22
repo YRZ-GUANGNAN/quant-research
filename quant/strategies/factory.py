@@ -22,6 +22,8 @@ def build_strategy(
     timing: bool = False,
     vol_target: float | None = None,
     ma_days: int = 200,
+    min_exposure: float = 0.0,
+    vol_cap: float | None = None,
 ):
     """按名称构造策略，可选叠加持仓缓冲与风控层。"""
     base_warmup = warmup if warmup is not None else (150 if name == "icw" else 130)
@@ -41,6 +43,7 @@ def build_strategy(
             factor_weights=PRESETS[name],
             warmup=base_warmup,
             buffer_ratio=buffer_ratio,
+            vol_cap_quantile=vol_cap,
         )
 
     if timing or vol_target is not None:
@@ -51,6 +54,7 @@ def build_strategy(
             timing=timing,
             vol_target=vol_target,
             ma_days=ma_days,
+            min_exposure=min_exposure,
             warmup=base_warmup,
         )
     return base

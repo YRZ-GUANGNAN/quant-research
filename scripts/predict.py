@@ -28,10 +28,10 @@ from quant.data.panel import Panel  # noqa: E402
 from quant.paper.state import PaperState  # noqa: E402
 from quant.strategies.topk import TopKStrategy  # noqa: E402
 
-# 冻结模型 v2：决策 0006 —— ic_tilt 因子 + 4 相位共识（相位不变组合）
+# 冻结模型 v3：决策 0007/0008 —— ic_tilt + 4 相位共识 + 40 只 + 35 日调仓
 MODEL = {
-    "name": "ic_tilt_ensemble_v2",
-    "strategy": "4 相位共识 + TopK 每日校准（相位不变组合）",
+    "name": "ic_tilt_ensemble_v3",
+    "strategy": "4 相位共识 + TopK40 每日校准（相位不变组合）",
     "factor_weights": {
         "amihud_20": 0.35,
         "rev_20": 0.20,
@@ -43,15 +43,15 @@ MODEL = {
     "ensemble": True,
     "phases": [0, 5, 10, 15],
     "horizon_days": 5,
-    "top_k": 30,
-    "rebalance_days": 20,
+    "top_k": 40,
+    "rebalance_days": 35,
     "universe": "沪深300 时点成分股（BaoStock 半年快照）",
-    "notes": "相位不变组合把跨相位标准差从 4.6% 降到 1.2%（训练期）。"
-             "验证期 6.7%±0.5%，样本外超额 -0.2%±1.1%：无 alpha，但结论可复现。"
-             "仅用于模拟盘演练与因子观察，不构成投资建议。",
+    "notes": "稳定标准 S1-S7 全过（决策 0007/0008）：年化 15.5%、回撤 -26.4%、"
+             "换手 10.3x、滚动 1 年正收益比例 82%、最长水下 279 个交易日。"
+             "样本外超额仍接近 0：这是稳定但无 alpha 的模型，仅用于模拟盘演练。",
 }
 
-MODEL_V1_NOTE = "v1（单相位）已归档：models/model_v1.json"
+MODEL_V1_NOTE = "v1（单相位）已归档：models/model_v1.json；v2 见 models/model_v2.json"
 
 
 def main() -> int:
@@ -122,7 +122,7 @@ def main() -> int:
         print("\n（无模拟盘持仓，指令为初始建仓）")
 
     if args.export:
-        out = ROOT / "models" / "model_v2.json"
+        out = ROOT / "models" / "model_v3.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             **MODEL,

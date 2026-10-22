@@ -200,3 +200,70 @@ def monthly_returns(nav: pd.Series) -> pd.DataFrame:
         }
     )
     return table.pivot(index="year", columns="month", values="ret")
+
+
+# ---------- 稳定性指标（用于「优化到稳定为止」的判定） ----------
+
+def yearly_returns(nav: pd.Series) -> pd.Series:
+    """自然年收益（首年从区间起点算）。"""
+    if nav.empty:
+        return pd.Series(dtype=float)
+    ends = nav.groupby(nav.index.year).last()
+    prev = ends.shift(1)
+    prev.iloc[0] = nav.iloc[0]
+    return ends / prev - 1.0
+
+
+def rolling_annual_returns(nav: pd.Series, window: int = TRADING_DAYS) -> pd.Series:
+    """滚动 window 个交易日的收益（近似「任意时点持有 1 年」的收益分布）。"""
+    if len(nav) <= window:
+        return pd.Series(dtype=float)
+    return nav.pct_change(window).dropna()
+
+
+def underwater_duration(nav: pd.Series) -> int:
+    """最长水下时长（交易日数）：净值低于历史新高的最长连续天数。"""
+    if nav.empty:
+        return 0
+    peak = nav.cummax()
+    under = nav < peak
+    longest = current = 0
+    for flag in under.to_numpy():
+        current = current + 1 if flag else 0
+        if current > longest:
+            longest = current
+    return int(longest)
+
+
+def stability_report(nav: pd.Series, benchmark: pd.Series | None = None) -> dict[str, float]:
+    """一篮子「稳不稳」的指标，对应决策 0007 的稳定标准。"""
+    nav = nav.dropna()
+    if len(nav) < 2:
+        return {}
+    rets = to_returns(nav)
+    ry = yearly_returns(nav)
+    ra = rolling_annual_returns(nav)
+    out: dict[str, float] = {
+        "annual_return": annualized_return(nav),
+        "sharpe": sharpe(rets),
+        "max_drawdown": max_drawdown(nav),
+        "calmar": calmar(nav),
+        "max_underwater_days": float(underwater_duration(nav)),
+        "rolling_1y_min": float(ra.min()) if not ra.empty else 0.0,
+        "rolling_1y_mean": float(ra.mean()) if not ra.empty else 0.0,
+        "rolling_1y_pct_positive": float((ra > 0).mean()) if not ra.empty else 0.0,
+        "worst_year": float(ry.min()) if not ry.empty else 0.0,
+        "pct_years_positive": float((ry > 0).mean()) if not ry.empty else 0.0,
+        "n_years": float(len(ry)),
+    }
+    if not ry.empty:
+        out["best_year"] = float(ry.max())
+        # 集中度：最好的一年贡献了多少「年度收益总和」——越高说明越靠单一年份
+        pos_sum = float(ry[ry > 0].sum())
+        out["best_year_share"] = float(ry.max() / pos_sum) if pos_sum > 0 else 0.0
+    if benchmark is not None and not benchmark.empty:
+        s, b = _align(nav, benchmark)
+        if len(s) > 2:
+            out["excess_annual"] = annualized_return(s) - annualized_return(b)
+    return out
+

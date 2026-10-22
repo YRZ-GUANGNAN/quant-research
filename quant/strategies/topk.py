@@ -35,9 +35,13 @@ class TopKStrategy:
     # 持仓缓冲：>1 时，已持有且仍排在前 top_k*buffer 名的股票优先保留，
     # 只为「新进入前列」的股票换仓，从而显著降低换手（代价：略微钝化信号）。
     buffer_ratio: float = 1.0
+    # 波动率上限过滤：排除当日 20 日波动率处于截面高分位的股票。
+    # 例如 0.8 = 只在波动率低于 80% 分位的股票里选，直接削掉尾部风险。
+    vol_cap_quantile: float | None = None
 
     _score: pd.DataFrame = field(init=False, repr=False)
     _amount: pd.DataFrame = field(init=False, repr=False)
+    _vol20: pd.DataFrame = field(init=False, repr=False)
     _held: list[str] = field(init=False, repr=False, default_factory=list)
 
     def __post_init__(self) -> None:
@@ -45,6 +49,7 @@ class TopKStrategy:
         self._score = composite_score(factors, self.factor_weights, method=self.method)
         amount = self.panel.get("amount")
         self._amount = amount.rolling(20).mean()
+        self._vol20 = self.panel.close.pct_change().rolling(20).std()
 
     # ---------- 选股 ----------
 
@@ -67,6 +72,15 @@ class TopKStrategy:
         score = score[amt.fillna(0) >= min_amt]
         if score.empty:
             return []
+
+        # 波动率上限：剔除当日波动率最高的那一部分股票
+        if self.vol_cap_quantile is not None and date in self._vol20.index:
+            vol = self._vol20.loc[date].reindex(score.index)
+            thr = float(vol.quantile(self.vol_cap_quantile))
+            score = score[vol.fillna(float("inf")) <= thr]
+            if score.empty:
+                return []
+
         ranked = score.sort_values(ascending=False)
 
         # 持仓缓冲：先保留仍在前 top_k*buffer_ratio 名的旧持仓，再用新面孔补齐

@@ -93,3 +93,22 @@ def test_ic_monitor_wraps_base_and_respects_warmup() -> None:
     # 用极低阈值（永不关门）时应产生正常权重
     weights = wf(len(panel.dates) - 1)
     assert weights is None or isinstance(weights, dict)
+
+
+def test_vol_cap_excludes_high_volatility_names() -> None:
+    """波动率上限过滤必须真的剔除当日高波动股票。"""
+    from quant.strategies.topk import TopKStrategy
+
+    panel = make_panel(n_days=420)
+    cfg = BacktestConfig(top_k=10, rebalance_days=20)
+    strat = TopKStrategy(
+        panel=panel, cfg=cfg, factor_weights={"amihud_20": 1.0},
+        warmup=130, vol_cap_quantile=0.5,
+    )
+    last = panel.dates[-1]
+    picks = strat.select(last)
+    assert picks, "波动率过滤后不应为空"
+    vol = panel.close.pct_change().rolling(20).std().loc[last]
+    threshold = float(vol.quantile(0.5))
+    picked = vol.reindex(picks).dropna()
+    assert (picked <= threshold + 1e-12).all(), "选出了超过波动率分位阈值的股票"

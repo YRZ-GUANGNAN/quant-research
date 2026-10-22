@@ -28,9 +28,14 @@ from .state import PaperState
 class PaperTrader:
     panel: Panel
     cfg: BacktestConfig
-    strategy: TopKStrategy
+    strategy: object          # 任意提供 weight_func() 的策略（TopK / 相位不变组合）
     state: PaperState
     warmup: int = 130
+
+    def __post_init__(self) -> None:
+        # 用策略自己的 weight_func 决定「哪天调仓、目标是什么」，
+        # 这样相位不变组合（每日校准 + 共识）也能直接接入模拟盘。
+        self._weight_func = self.strategy.weight_func()
 
     def step(self, i: int) -> dict:
         """推进到 dates[i] 这一天。"""
@@ -63,9 +68,10 @@ class PaperTrader:
             }
         )
 
-        # 调仓日：生成下一交易日要执行的目标权重
-        if i >= self.warmup and (i - self.warmup) % self.cfg.rebalance_days == 0:
-            self.state.pending = self.strategy.target_weights(d)
+        # 调仓日：由策略自己判断（支持单相位 / 相位不变组合）
+        target = self._weight_func(i)
+        if target is not None:
+            self.state.pending = target
 
         self.state.day_index = i
         self.state.last_date = str(d.date())
