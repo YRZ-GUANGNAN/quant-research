@@ -1,18 +1,14 @@
-"""本地缓存层：行情面板与指数成分股。
+"""本地缓存层：行情面板、指数行情与时点成分股（多市场）。
 
-存储格式：
-- ``data/cache/bars.csv.gz``        个股日线（长表，列 code/date/…）
-- ``data/cache/index_bars.csv.gz``  基准指数日线
-- ``data/cache/universe_<code>.json`` 指数成分股快照（含抓取时间）
+文件命名：
+- ``bars.csv.gz`` / ``index_bars.csv.gz`` / ``members_000300.csv.gz``   A 股（兼容旧路径）
+- ``bars_<market>.csv.gz`` / ``index_bars_<market>.csv.gz``             美股 / 港股 / 加密
 
-选择 gzip CSV 而不是 parquet：不引入 pyarrow 依赖，300 只 × 2000 日约 60 万行，
-读写都在秒级，足够本项目使用。
+选择 gzip CSV 而不是 parquet：不引入 pyarrow 依赖，读写秒级。
 """
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -23,79 +19,88 @@ BARS_FILE = CACHE_DIR / "bars.csv.gz"
 INDEX_BARS_FILE = CACHE_DIR / "index_bars.csv.gz"
 
 BARS_COLUMNS = [
-    "code", "date", "open", "close", "high", "low", "volume", "amount",
-    "amplitude", "pct_chg", "chg", "turnover", "name",
+    "code", "date", "open", "high", "low", "close", "volume", "amount",
+    "pct_chg", "turnover", "name",
 ]
 
 
-def _universe_file(index_code: str) -> Path:
-    return CACHE_DIR / f"universe_{str(index_code).zfill(6)}.json"
+def bars_file(market: str = "cn") -> Path:
+    return BARS_FILE if market == "cn" else CACHE_DIR / f"bars_{market}.csv.gz"
 
 
-def _read_csv(path: Path) -> pd.DataFrame:
+def index_bars_file(market: str = "cn") -> Path:
+    return INDEX_BARS_FILE if market == "cn" else CACHE_DIR / f"index_bars_{market}.csv.gz"
+
+
+def members_file(index_code: str) -> Path:
+    return CACHE_DIR / f"members_{str(index_code).zfill(6)}.csv.gz"
+
+
+def _read_csv(path: Path, date_cols: list[str] | None = None, code: bool = True) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path, dtype={"code": str}, parse_dates=["date"])
+    dtype = {"code": str} if code else None
+    return pd.read_csv(path, dtype=dtype, parse_dates=date_cols or [])
 
 
 def _atomic_to_csv(df: pd.DataFrame, path: Path) -> None:
     """先写临时文件再替换，避免中断产生半截缓存。"""
     ensure_dirs()
     tmp = path.with_suffix(path.suffix + ".tmp")
-    df.to_csv(tmp, index=False, compression="gzip", float_format="%.4f")
+    df.to_csv(tmp, index=False, compression="gzip", float_format="%.6f")
     tmp.replace(path)
 
 
-def load_bars() -> pd.DataFrame:
-    df = _read_csv(BARS_FILE)
+# ---------- 个股行情 ----------
+
+def load_bars(market: str = "cn") -> pd.DataFrame:
+    df = _read_csv(bars_file(market), ["date"])
     if df.empty:
         return df
     return df.sort_values(["date", "code"]).reset_index(drop=True)
 
 
-def save_bars(df: pd.DataFrame) -> None:
-    df = df.sort_values(["code", "date"])
-    _atomic_to_csv(df, BARS_FILE)
+def save_bars(df: pd.DataFrame, market: str = "cn") -> None:
+    _atomic_to_csv(df.sort_values(["code", "date"]), bars_file(market))
 
 
-def upsert_bars(new: pd.DataFrame) -> pd.DataFrame:
-    """合并新行情（同 code+date 以新数据为准，处理前复权重算）。"""
-    old = load_bars()
-    if old.empty:
-        merged = new.copy()
-    else:
-        merged = pd.concat([old, new], ignore_index=True)
+def upsert_bars(new: pd.DataFrame, market: str = "cn") -> pd.DataFrame:
+    """合并新行情；同 code+date 以新数据为准（复权价会随分红/拆股重算）。"""
+    old = load_bars(market)
+    merged = new.copy() if old.empty else pd.concat([old, new], ignore_index=True)
     merged = merged.drop_duplicates(subset=["code", "date"], keep="last")
-    save_bars(merged)
+    save_bars(merged, market)
     return merged
 
 
-def load_index_bars() -> pd.DataFrame:
-    path = INDEX_BARS_FILE
+# ---------- 指数行情 ----------
+
+def load_index_bars(market: str = "cn") -> pd.DataFrame:
+    path = index_bars_file(market)
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path, dtype={"index_code": str}, parse_dates=["date"]).sort_values("date")
+    return (
+        pd.read_csv(path, dtype={"index_code": str}, parse_dates=["date"])
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
 
 
-def save_index_bars(df: pd.DataFrame) -> None:
-    df = df.sort_values("date")
-    _atomic_to_csv(df, INDEX_BARS_FILE)
+def save_index_bars(df: pd.DataFrame, market: str = "cn") -> None:
+    _atomic_to_csv(df.sort_values("date"), index_bars_file(market))
 
 
-def load_universe(index_code: str) -> pd.DataFrame:
-    path = _universe_file(index_code)
-    if not path.exists():
-        return pd.DataFrame()
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return pd.DataFrame(payload.get("members", []))
+# ---------- 时点成分股（A 股专用） ----------
+
+def load_members(index_code: str = "000300") -> pd.DataFrame:
+    df = _read_csv(members_file(index_code), ["snapshot_date"])
+    if df.empty:
+        return df
+    return df.drop_duplicates(["snapshot_date", "code"]).reset_index(drop=True)
 
 
-def save_universe(index_code: str, members: pd.DataFrame) -> None:
-    path = _universe_file(index_code)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "index_code": str(index_code).zfill(6),
-        "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "members": members.to_dict(orient="records"),
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_members(index_code: str, df: pd.DataFrame) -> None:
+    _atomic_to_csv(
+        df.sort_values(["snapshot_date", "code"]).drop_duplicates(["snapshot_date", "code"]),
+        members_file(index_code),
+    )

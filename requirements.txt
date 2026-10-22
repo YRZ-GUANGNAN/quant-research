@@ -1,3 +1,4 @@
+baostock>=0.9.40
 pandas>=2.2
 numpy>=2.1
 scipy>=1.14
