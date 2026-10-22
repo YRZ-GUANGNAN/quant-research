@@ -68,7 +68,9 @@ class ICWeightedStrategy:
 
         score = pd.DataFrame(0.0, index=self.panel.dates, columns=self.panel.codes)
         for name in self.factors:
-            score = score.add(z[name] * weights[name].reindex(score.index), axis=0)
+            # 注意：必须用 axis=0 按日期对齐；直接 DataFrame * Series 会按列对齐产生全 NaN
+            weighted = z[name].mul(weights[name].reindex(score.index), axis=0)
+            score = score.add(weighted, fill_value=0.0)
         self._score = score.replace([np.inf, -np.inf], np.nan)
         self._ic_diag = ic_df
 

@@ -1,0 +1,38 @@
+{
+  "strategy": "multi",
+  "factor_weights": {
+    "mom_60": 0.4,
+    "rev_5": 0.3,
+    "vol_20": -0.2,
+    "turnover_20": -0.1
+  },
+  "config": {
+    "index": "000300",
+    "start": "2018-01-01",
+    "end": "2022-12-31",
+    "topk": 30,
+    "rebalance_days": 20,
+    "slippage": 0.0005
+  },
+  "metrics": {
+    "name": "multi",
+    "total_return": 0.8827778518528395,
+    "annual_return": 0.14023761809712587,
+    "annual_vol": 0.3103096896793009,
+    "sharpe": 0.5780182619000568,
+    "sortino": 0.7545614695820684,
+    "max_drawdown": -0.3826156442362477,
+    "calmar": 0.36652348174905136,
+    "win_rate": 0.4596375617792422,
+    "n_days": 1215.0,
+    "bench_annual_return": -0.011185244103721126,
+    "excess_annual": 0.151422862200847,
+    "beta": 1.0492874087264104,
+    "alpha_annual": 0.16868895592769964,
+    "tracking_error": 0.22202606843261694,
+    "information_ratio": 0.7620295197749203,
+    "turnover_annual": 16.077204826525417,
+    "n_trades": 2424.0,
+    "total_fee": 60680.15594716901
+  }
+}

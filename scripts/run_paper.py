@@ -28,13 +28,18 @@ PRESETS: dict[str, dict[str, float]] = {
     "momentum": {"mom_60": 1.0},
     "reversal": {"rev_5": 1.0},
     "multi": {"mom_60": 0.4, "rev_5": 0.3, "vol_20": -0.2, "turnover_20": -0.1},
+    # 决策 0005 冻结模型（模拟盘默认使用）
+    "ic_tilt": {
+        "amihud_20": 0.35, "rev_20": 0.20, "rev_5": 0.15,
+        "log_amount": -0.20, "ma_gap_60": -0.10, "vol_20": -0.05,
+    },
 }
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="模拟盘日更")
     ap.add_argument("--index", default="000300")
-    ap.add_argument("--strategy", default="multi", choices=sorted(PRESETS))
+    ap.add_argument("--strategy", default="ic_tilt", choices=sorted(PRESETS))
     ap.add_argument("--cash", type=float, default=1_000_000.0)
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--fetch", action="store_true")

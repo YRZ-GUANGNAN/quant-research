@@ -51,7 +51,7 @@ class LGBMStrategy:
     _y: pd.Series = field(init=False, repr=False)         # 前瞻收益的截面排名
     _dates: pd.DatetimeIndex = field(init=False, repr=False)
     _last_train: int = field(init=False, default=-10**9, repr=False)
-    _model = field(init=False, default=None, repr=False)
+    _model: object = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         factors = build_factors(self.panel)
@@ -65,7 +65,18 @@ class LGBMStrategy:
         }
         X = pd.concat(stacked, axis=1)
         X.columns = self.features
-        self._X = X
+
+        # 2) 自动剔除「整列全空」的特征：数据源缺少换手率时 turnover 类因子不可用。
+        #    LightGBM 原生支持 NaN，所以不需要把缺失行整行丢掉。
+        coverage = X.notna().mean()
+        keep = coverage[coverage > 0.3].index.tolist()
+        if len(keep) < 3:
+            raise RuntimeError(f"可用特征不足：{keep}")
+        dropped = [c for c in self.features if c not in keep]
+        if dropped:
+            print(f"[lgbm] 剔除缺失率过高的特征: {dropped}")
+        self.features = keep
+        self._X = X[keep]
 
         # 2) 标签：未来 h 日收益的截面排名（0~1），对异常值更稳健
         fwd = forward_returns(self.panel.close, self.horizon)
@@ -85,7 +96,10 @@ class LGBMStrategy:
         mask = (idx.get_level_values(0) <= cutoff) & (idx.get_level_values(0) >= start)
         X = self._X[mask]
         y = self._y[mask]
-        valid = y.notna() & X.notna().all(axis=1)
+        # 标签必须存在；特征允许部分缺失（LightGBM 原生处理 NaN），
+        # 但至少要有半数特征可算，避免整行是噪声。
+        min_features = max(3, len(self.features) // 2)
+        valid = y.notna() & (X.notna().sum(axis=1) >= min_features)
         X, y = X[valid], y[valid]
         if len(X) < 5000:
             raise RuntimeError(f"训练样本不足：{len(X)}")

@@ -1,0 +1,121 @@
+"""本地量化模型：每日生成目标组合与调仓指令。
+
+这是「研究成果 → 可运行产物」的最后一公里：
+1. 读取本地行情缓存（增量更新后）；
+2. 用冻结的因子权重（决策 0005：ic_tilt）计算当日目标持仓；
+3. 与模拟盘当前持仓对比，输出**具体股数与方向**的交易指令；
+4. 支持导出模型规格 JSON（模型版本、权重、创建时间、数据截止日）。
+
+用法：
+    python scripts/predict.py                 # 今日目标组合 + 调仓指令
+    python scripts/predict.py --export        # 同时导出 models/model_v1.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pandas as pd  # noqa: E402
+
+from quant.config import BacktestConfig, ROOT, ensure_dirs  # noqa: E402
+from quant.data.panel import Panel  # noqa: E402
+from quant.paper.state import PaperState  # noqa: E402
+from quant.strategies.topk import TopKStrategy  # noqa: E402
+
+# 冻结模型：决策 0005 选定的固定权重（不经调参再优化）
+MODEL = {
+    "name": "ic_tilt_v1",
+    "strategy": "TopK 固定权重合成",
+    "factor_weights": {
+        "amihud_20": 0.35,
+        "rev_20": 0.20,
+        "rev_5": 0.15,
+        "log_amount": -0.20,
+        "ma_gap_60": -0.10,
+        "vol_20": -0.05,
+    },
+    "horizon_days": 5,
+    "top_k": 30,
+    "rebalance_days": 20,
+    "universe": "沪深300 时点成分股（BaoStock 半年快照）",
+    "notes": "2018-2022 训练期多相位超额 +22.2%；2023-2024 衰减至 +6.0%；2025- 无超额。"
+             "仅用于模拟盘演练与因子观察，不构成投资建议。",
+}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="生成目标组合与调仓指令")
+    ap.add_argument("--topk", type=int, default=MODEL["top_k"])
+    ap.add_argument("--export", action="store_true")
+    ap.add_argument("--cash", type=float, default=1_000_000.0)
+    args = ap.parse_args()
+
+    ensure_dirs()
+    cfg = BacktestConfig(top_k=args.topk, rebalance_days=MODEL["rebalance_days"])
+    panel = Panel.load(index_code="000300")
+    strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"])
+
+    last_date = panel.dates[-1]
+    weights = strat.target_weights(last_date)
+    if not weights:
+        print(f"[model] {last_date.date()} 无有效目标组合（数据不足或非调仓日）")
+        return 1
+
+    print(f"=== {MODEL['name']} · 目标组合 @ {last_date.date()} ===")
+    print(f"因子权重: {MODEL['factor_weights']}")
+    print(f"目标持仓 {len(weights)} 只，总仓位 {sum(weights.values()):.1%}\n")
+    print(f"{'代码':<8}{'名称':<10}{'权重':>8}{'收盘价':>10}")
+    close = panel.close.loc[last_date]
+    for code, w in sorted(weights.items(), key=lambda kv: -kv[1]):
+        name = panel.names.get(code, "")
+        print(f"{code:<8}{name:<10}{w:>8.2%}{close.get(code, float('nan')):>10.2f}")
+
+    # 与模拟盘当前持仓对比，生成交易指令
+    state = PaperState.load()
+    if state and state.positions:
+        print("\n=== 相对当前模拟盘的调仓指令（按 100 股整手估算）===")
+        equity = state.equity()
+        orders = []
+        for code, w in weights.items():
+            px = float(close.get(code, 0) or 0)
+            if px <= 0:
+                continue
+            target_shares = int(w * equity / px) // 100 * 100
+            cur = state.positions.get(code, {}).get("shares", 0)
+            delta = target_shares - cur
+            if abs(delta) >= 100:
+                orders.append((code, panel.names.get(code, ""), delta, px))
+        for code, name, delta, px in sorted(orders, key=lambda x: -abs(x[2] * x[3])):
+            side = "买入" if delta > 0 else "卖出"
+            print(f"  {side} {code} {name:<8} {abs(delta):>7} 股  约 {abs(delta) * px:>12,.0f} 元")
+        for code in state.positions:
+            if code not in weights:
+                pos = state.positions[code]
+                print(f"  卖出 {code} {panel.names.get(code, ''):<8} {pos['shares']:>7} 股  （清仓）")
+    else:
+        print("\n（无模拟盘持仓，指令为初始建仓）")
+
+    if args.export:
+        out = ROOT / "models" / "model_v1.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            **MODEL,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "data_start": str(panel.dates[0].date()),
+            "data_end": str(last_date.date()),
+            "n_codes": len(panel.codes),
+            "targets": {code: round(w, 6) for code, w in weights.items()},
+        }
+        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n[model] 模型规格已导出 -> {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -64,8 +64,8 @@ def build_factors(panel: Panel) -> dict[str, pd.DataFrame]:
     f["rsi_14"] = _rsi(close, 14)
 
     # --- 规模代理（无市值数据，用成交额 + 价格近似） ---
-    f["log_amount"] = np.log(amount.rolling(20).mean().replace(0, np.nan))
-    f["log_price"] = np.log(close)
+    f["log_amount"] = np.log(amount.rolling(20).mean().where(lambda x: x > 0))
+    f["log_price"] = np.log(close.where(lambda x: x > 0))
 
     # --- 相对基准的 beta / 超额动量 ---
     bench_ret = panel.benchmark.pct_change()

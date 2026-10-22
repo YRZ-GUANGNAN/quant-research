@@ -1,0 +1,40 @@
+{
+  "strategy": "ic_tilt",
+  "factor_weights": {
+    "amihud_20": 0.35,
+    "rev_20": 0.2,
+    "rev_5": 0.15,
+    "log_amount": -0.2,
+    "ma_gap_60": -0.1,
+    "vol_20": -0.05
+  },
+  "config": {
+    "index": "000300",
+    "start": "2018-01-01",
+    "end": "",
+    "topk": 30,
+    "rebalance_days": 20,
+    "slippage": 0.0005
+  },
+  "metrics": {
+    "name": "ic_tilt",
+    "total_return": 2.170982775523394,
+    "annual_return": 0.14600109369887138,
+    "annual_vol": 0.25216014002907566,
+    "sharpe": 0.6664420746618425,
+    "sortino": 0.9320828226824237,
+    "max_drawdown": -0.32143826756616933,
+    "calmar": 0.454211923192426,
+    "win_rate": 0.4744491326769808,
+    "n_days": 2134.0,
+    "bench_annual_return": -0.0014846490625231024,
+    "excess_annual": 0.14748574276139448,
+    "beta": 0.9678834421330542,
+    "alpha_annual": 0.1513823889755092,
+    "tracking_error": 0.16911956574061413,
+    "information_ratio": 0.8918501838614719,
+    "turnover_annual": 13.6801423217913,
+    "n_trades": 3718.0,
+    "total_fee": 136452.07477662404
+  }
+}
