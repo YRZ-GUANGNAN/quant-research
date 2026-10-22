@@ -28,10 +28,10 @@ from quant.data.panel import Panel  # noqa: E402
 from quant.paper.state import PaperState  # noqa: E402
 from quant.strategies.topk import TopKStrategy  # noqa: E402
 
-# 冻结模型：决策 0005 选定的固定权重（不经调参再优化）
+# 冻结模型 v2：决策 0006 —— ic_tilt 因子 + 4 相位共识（相位不变组合）
 MODEL = {
-    "name": "ic_tilt_v1",
-    "strategy": "TopK 固定权重合成",
+    "name": "ic_tilt_ensemble_v2",
+    "strategy": "4 相位共识 + TopK 每日校准（相位不变组合）",
     "factor_weights": {
         "amihud_20": 0.35,
         "rev_20": 0.20,
@@ -40,13 +40,18 @@ MODEL = {
         "ma_gap_60": -0.10,
         "vol_20": -0.05,
     },
+    "ensemble": True,
+    "phases": [0, 5, 10, 15],
     "horizon_days": 5,
     "top_k": 30,
     "rebalance_days": 20,
     "universe": "沪深300 时点成分股（BaoStock 半年快照）",
-    "notes": "2018-2022 训练期多相位超额 +22.2%；2023-2024 衰减至 +6.0%；2025- 无超额。"
+    "notes": "相位不变组合把跨相位标准差从 4.6% 降到 1.2%（训练期）。"
+             "验证期 6.7%±0.5%，样本外超额 -0.2%±1.1%：无 alpha，但结论可复现。"
              "仅用于模拟盘演练与因子观察，不构成投资建议。",
 }
+
+MODEL_V1_NOTE = "v1（单相位）已归档：models/model_v1.json"
 
 
 def main() -> int:
@@ -59,10 +64,25 @@ def main() -> int:
     ensure_dirs()
     cfg = BacktestConfig(top_k=args.topk, rebalance_days=MODEL["rebalance_days"])
     panel = Panel.load(index_code="000300")
-    strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"])
-
     last_date = panel.dates[-1]
-    weights = strat.target_weights(last_date)
+
+    if MODEL.get("ensemble"):
+        # 相位共识：每个相位独立选股，再把权重加总取前 top_k（与 PhaseEnsembleStrategy 一致）
+        total: dict[str, float] = {}
+        for off in MODEL["phases"]:
+            member = TopKStrategy(
+                panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"],
+                warmup=130 + off,
+            )
+            for code, w in member.target_weights(last_date).items():
+                total[code] = total.get(code, 0.0) + w
+        ranked = sorted(total.items(), key=lambda kv: -kv[1])[: cfg.top_k]
+        s = sum(v for _, v in ranked) or 1.0
+        gross = 1.0 - cfg.cash_buffer
+        weights = {code: v / s * gross for code, v in ranked}
+    else:
+        strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"])
+        weights = strat.target_weights(last_date)
     if not weights:
         print(f"[model] {last_date.date()} 无有效目标组合（数据不足或非调仓日）")
         return 1
@@ -102,7 +122,7 @@ def main() -> int:
         print("\n（无模拟盘持仓，指令为初始建仓）")
 
     if args.export:
-        out = ROOT / "models" / "model_v1.json"
+        out = ROOT / "models" / "model_v2.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             **MODEL,

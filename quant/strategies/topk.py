@@ -32,9 +32,13 @@ class TopKStrategy:
     method: str = "zscore"                 # zscore | rank
     warmup: int = 130                      # 因子最长窗口 120 + 缓冲
     min_amount: float | None = None         # None 则用 cfg.min_amount
+    # 持仓缓冲：>1 时，已持有且仍排在前 top_k*buffer 名的股票优先保留，
+    # 只为「新进入前列」的股票换仓，从而显著降低换手（代价：略微钝化信号）。
+    buffer_ratio: float = 1.0
 
     _score: pd.DataFrame = field(init=False, repr=False)
     _amount: pd.DataFrame = field(init=False, repr=False)
+    _held: list[str] = field(init=False, repr=False, default_factory=list)
 
     def __post_init__(self) -> None:
         factors = build_factors(self.panel)
@@ -63,7 +67,23 @@ class TopKStrategy:
         score = score[amt.fillna(0) >= min_amt]
         if score.empty:
             return []
-        return list(score.sort_values(ascending=False).head(self.cfg.top_k).index)
+        ranked = score.sort_values(ascending=False)
+
+        # 持仓缓冲：先保留仍在前 top_k*buffer_ratio 名的旧持仓，再用新面孔补齐
+        if self.buffer_ratio > 1.0 and self._held:
+            keep_n = max(self.cfg.top_k, int(round(self.cfg.top_k * self.buffer_ratio)))
+            keep_set = set(ranked.index[:keep_n])
+            picks = [c for c in self._held if c in keep_set][: self.cfg.top_k]
+            for code in ranked.index:
+                if len(picks) >= self.cfg.top_k:
+                    break
+                if code not in picks:
+                    picks.append(code)
+        else:
+            picks = list(ranked.index[: self.cfg.top_k])
+
+        self._held = picks
+        return picks
 
     def target_weights(self, date: pd.Timestamp) -> dict[str, float]:
         """等权目标权重，含单票上限与现金缓冲。"""

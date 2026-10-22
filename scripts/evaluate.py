@@ -5,11 +5,13 @@
 说明「单窗口回测」的结论大部分是路径噪声，不是 alpha。
 
 本脚本对同一策略跑 K 个调仓相位，报告各分段的 **均值 ± 标准差**，
-并把均值/标准差 > 0.5 的结果标记为「不可信」。
+并把均值/标准差 < 1 的结果标记为「不可信」。
 
 用法：
     python scripts/evaluate.py --strategy ic_tilt --phases 0,5,10,15
-    python scripts/evaluate.py --strategy icw --phases 0,5,10,15 --slippage 0.001
+    python scripts/evaluate.py --strategy ic_tilt --timing --phases 0,5,10,15
+    python scripts/evaluate.py --strategy ic_tilt --timing --buffer 1.5 --rebalance 40
+    python scripts/evaluate.py --strategy ic_tilt --vol-target 0.15
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import argparse
 import json
 import statistics
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -28,22 +31,8 @@ from quant.config import REPORTS_DIR, BacktestConfig, ensure_dirs  # noqa: E402
 from quant.data.panel import Panel  # noqa: E402
 from quant.engine.backtest import Backtester  # noqa: E402
 from quant.engine.metrics import performance  # noqa: E402
-
-PRESETS: dict[str, dict[str, float]] = {
-    "momentum": {"mom_60": 1.0},
-    "reversal": {"rev_5": 1.0},
-    "multi": {"mom_60": 0.4, "rev_5": 0.3, "vol_20": -0.2, "turnover_20": -0.1},
-    "ic_tilt": {
-        "amihud_20": 0.35, "rev_20": 0.20, "rev_5": 0.15,
-        "log_amount": -0.20, "ma_gap_60": -0.10, "vol_20": -0.05,
-    },
-}
-
-ICW_FACTORS = [
-    "amihud_20", "rev_20", "rev_5", "vol_20", "vol_60", "log_amount",
-    "ma_gap_60", "ma_gap_20", "mom_120", "max_ret_20", "turnover_20",
-    "beta_60", "excess_mom_60", "rsi_14", "skew_60", "volume_ratio",
-]
+from quant.strategies.factory import build_strategy  # noqa: E402
+from quant.strategies.presets import PRESETS  # noqa: E402
 
 SEGMENTS = [
     ("训练 2018-2022", "2018-01-01", "2022-12-31"),
@@ -51,19 +40,8 @@ SEGMENTS = [
     ("样本外 2025-", "2025-01-01", ""),
 ]
 
-METRICS = ["annual_return", "excess_annual", "sharpe", "max_drawdown", "information_ratio"]
-
-
-def build_strategy(strategy: str, panel: Panel, cfg: BacktestConfig, warmup: int):
-    if strategy == "icw":
-        from quant.models.linear import ICWeightedStrategy
-
-        return ICWeightedStrategy(panel=panel, cfg=cfg, factors=ICW_FACTORS, horizon=5, warmup=warmup)
-    from quant.strategies.topk import TopKStrategy
-
-    if strategy not in PRESETS:
-        raise SystemExit(f"未知策略 {strategy}")
-    return TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS[strategy], warmup=warmup)
+METRICS = ["annual_return", "excess_annual", "sharpe", "max_drawdown",
+           "information_ratio", "turnover_annual"]
 
 
 def segment_metrics(nav: pd.Series, bench: pd.Series) -> dict[str, dict]:
@@ -87,32 +65,91 @@ def main() -> int:
     ap.add_argument("--base-warmup", type=int, default=130)
     ap.add_argument("--topk", type=int, default=30)
     ap.add_argument("--rebalance", type=int, default=20)
+    ap.add_argument("--buffer", type=float, default=1.0, help="持仓缓冲倍数，>1 降换手")
+    ap.add_argument("--timing", action="store_true", help="基准 200 日均线择时")
+    ap.add_argument("--ma-days", type=int, default=200)
+    ap.add_argument("--vol-target", type=float, default=None, help="年化波动率目标，如 0.15")
     ap.add_argument("--slippage", type=float, default=5e-4)
     ap.add_argument("--start", default="2018-01-01")
+    ap.add_argument("--ensemble", action="store_true",
+                    help="相位不变组合：多个错开相位的子策略投票")
+    ap.add_argument("--ensemble-offsets", default="0,5,10,15")
+    ap.add_argument("--ic-gate", action="store_true",
+                    help="因子自检闸门：滚动 IC 转负时自动空仓")
+    ap.add_argument("--ic-window", type=int, default=60)
+    ap.add_argument("--ic-min", type=float, default=0.0)
+    ap.add_argument("--ic-off-exposure", type=float, default=0.0,
+                    help="闸门关闭时的仓位（0=清仓，0.5=半仓）")
     args = ap.parse_args()
 
     ensure_dirs()
     phases = [int(x) for x in args.phases.split(",") if x.strip()]
-    from dataclasses import replace as _replace
+    cfg = BacktestConfig(
+        start=args.start, top_k=args.topk, rebalance_days=args.rebalance,
+    )
+    cfg = cfg.with_(costs=replace(cfg.costs, slippage=args.slippage))
 
-    cfg = BacktestConfig(start=args.start, top_k=args.topk, rebalance_days=args.rebalance)
-    cfg = cfg.with_(costs=_replace(cfg.costs, slippage=args.slippage))
+    label_parts = [args.strategy]
+    if args.ensemble:
+        label_parts.append("ens")
+    if args.ic_gate:
+        label_parts.append("icgate")
+    if args.timing:
+        label_parts.append(f"timing{args.ma_days}")
+    if args.vol_target:
+        label_parts.append(f"vol{args.vol_target}")
+    if args.buffer > 1.0:
+        label_parts.append(f"buf{args.buffer}")
+    label_parts.append(f"reb{args.rebalance}")
+    run_label = "_".join(label_parts)
 
     print(f"[eval] 加载面板 {args.start} ~ ...")
     panel = Panel.load(index_code="000300", start=args.start)
-    print(f"[eval] {len(panel.dates)} 交易日 × {len(panel.codes)} 只，策略={args.strategy}，"
+    print(f"[eval] {len(panel.dates)} 交易日 × {len(panel.codes)} 只，配置={run_label}，"
           f"相位={phases}，滑点={args.slippage:.4f}")
 
     rows: list[dict] = []
     for off in phases:
         warmup = args.base_warmup + off
-        strat = build_strategy(args.strategy, panel, cfg, warmup)
-        result = Backtester(panel, cfg).run(strat.weight_func(), name=f"{args.strategy}_p{off}")
+        if args.ensemble:
+            from quant.strategies.ensemble import PhaseEnsembleStrategy
+
+            offsets = tuple(int(x) for x in args.ensemble_offsets.split(",") if x.strip())
+            strat = PhaseEnsembleStrategy(
+                panel=panel, cfg=cfg, name=args.strategy, offsets=offsets,
+                warmup=warmup, buffer_ratio=args.buffer,
+                timing=args.timing, vol_target=args.vol_target,
+            )
+        elif args.ic_gate:
+            from quant.strategies.overlay import ICMonitorOverlay
+
+            base = build_strategy(
+                args.strategy, panel, cfg, warmup=warmup,
+                buffer_ratio=args.buffer, timing=args.timing,
+                vol_target=args.vol_target, ma_days=args.ma_days,
+            )
+            strat = ICMonitorOverlay(
+                panel=panel, cfg=cfg, base=base,
+                window=args.ic_window, min_ic=args.ic_min,
+                off_exposure=args.ic_off_exposure, warmup=warmup,
+            )
+        else:
+            strat = build_strategy(
+                args.strategy, panel, cfg,
+                warmup=warmup,
+                buffer_ratio=args.buffer,
+                timing=args.timing,
+                vol_target=args.vol_target,
+                ma_days=args.ma_days,
+            )
+        result = Backtester(panel, cfg).run(strat.weight_func(), name=f"{run_label}_p{off}")
         seg = segment_metrics(result.nav, result.benchmark_nav)
         for label, vals in seg.items():
             if vals:
                 rows.append({"phase": off, "segment": label, **vals})
-        print(f"  phase={off} 完成：全期年化 {result.metrics['annual_return'] * 100:6.2f}%")
+        print(f"  phase={off} 全期年化 {result.metrics['annual_return'] * 100:6.2f}%  "
+              f"回撤 {result.metrics['max_drawdown'] * 100:6.2f}%  "
+              f"换手 {result.metrics.get('turnover_annual', 0):5.2f}x")
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -120,31 +157,31 @@ def main() -> int:
         return 1
 
     summary: dict[str, dict] = {}
-    print("\n=== 多相位评估（均值 ± 标准差）===")
-    for label, _, _ in SEGMENTS:
-        sub = df[df["segment"] == label]
+    print(f"\n=== 多相位评估 · {run_label}（均值 ± 标准差）===")
+    for seg_label, _, _ in SEGMENTS:
+        sub = df[df["segment"] == seg_label]
         if sub.empty:
             continue
-        summary[label] = {}
-        print(f"\n{label}（{len(sub)} 个相位）")
+        summary[seg_label] = {}
+        print(f"\n{seg_label}（{len(sub)} 个相位）")
         for key in METRICS:
             if key not in sub:
                 continue
             vals = sub[key].tolist()
             mean = statistics.mean(vals)
             std = statistics.pstdev(vals)
-            summary[label][key] = {"mean": mean, "std": std, "values": vals}
-            flag = " ⚠️不稳定" if (key in ("annual_return", "excess_annual") and abs(std) > 0.05) else ""
+            summary[seg_label][key] = {"mean": mean, "std": std, "values": vals}
+            unstable = key in ("annual_return", "excess_annual") and std > 0.05
+            flag = " ⚠️不稳定" if unstable else ""
             if key in ("annual_return", "excess_annual", "max_drawdown"):
                 print(f"  {key:<18} {mean * 100:7.2f}% ± {std * 100:5.2f}%{flag}")
             else:
                 print(f"  {key:<18} {mean:7.3f} ± {std:5.3f}{flag}")
 
-    out_path = REPORTS_DIR / f"eval_{args.strategy}_phase.json"
+    out_path = REPORTS_DIR / f"eval_{run_label}.json"
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[eval] 结果 -> {out_path}")
-    print("[eval] 判读规则：均值/标准差 小于 1 的结论不可采信；"
-          "单相位最优结果不能作为选择依据。")
+    print("[eval] 判读规则：均值/标准差 < 1 的结论不可采信；单相位最优不能作为选择依据。")
     return 0
 
 
