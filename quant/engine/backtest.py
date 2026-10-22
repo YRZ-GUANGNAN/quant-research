@@ -99,25 +99,56 @@ class BacktestResult:
 
 
 class Backtester:
-    """日频、整仓调仓的模拟盘回测器。"""
+    """日频、整仓调仓的模拟盘回测器。
 
-    def __init__(self, panel: Panel, cfg: BacktestConfig):
+    ``vol_target`` 为组合层波动率目标（非择时）：每次调仓时根据**已实现**的
+    组合波动率缩放目标仓位（只用历史净值，不含未来信息），
+    高波动时降仓、低波动时满仓，用来提高「大多数时段不亏」的概率。
+    """
+
+    def __init__(
+        self,
+        panel: Panel,
+        cfg: BacktestConfig,
+        *,
+        vol_target: float | None = None,
+        vol_lookback: int = 20,
+        min_exposure: float = 0.3,
+    ):
         self.panel = panel
         self.cfg = cfg
         self.close = panel.get("close")
         self.open = panel.get("open")
         self.dates = panel.dates
+        self.vol_target = vol_target
+        self.vol_lookback = vol_lookback
+        self.min_exposure = min_exposure
 
-    def _execute(self, broker: PaperBroker, i: int, target: dict[str, float]) -> None:
+    def _exposure(self, nav_values: list[float]) -> float:
+        """按已实现组合波动率计算缩放系数（仅用历史净值）。"""
+        if not self.vol_target or len(nav_values) < self.vol_lookback + 2:
+            return 1.0
+        import numpy as np
+
+        series = pd.Series(nav_values[-(self.vol_lookback + 1):])
+        rets = series.pct_change().dropna()
+        vol = float(rets.std(ddof=1) * np.sqrt(252))
+        if vol <= 0 or not np.isfinite(vol):
+            return 1.0
+        return float(min(1.0, max(self.min_exposure, self.vol_target / vol)))
+
+
+    def _execute(self, broker: PaperBroker, i: int, target: dict[str, float], expo: float = 1.0) -> None:
         d = self.dates[i]
         prev_d = self.dates[i - 1] if i > 0 else None
+        scaled = {code: w * expo for code, w in target.items()} if expo < 1.0 else target
         execute_target(
             broker,
             self.cfg,
             str(d.date()),
             self.open.loc[d],
             self.close.loc[prev_d] if prev_d is not None else None,
-            target,
+            scaled,
         )
 
     def run(self, weight_func: WeightFunc, name: str = "strategy") -> BacktestResult:
@@ -131,7 +162,7 @@ class Backtester:
         for i, d in enumerate(self.dates):
             broker.settle()
             if pending is not None:
-                self._execute(broker, i, pending)
+                self._execute(broker, i, pending, self._exposure(nav_values))
                 pending = None
 
             close_px = self.close.loc[d].dropna()
