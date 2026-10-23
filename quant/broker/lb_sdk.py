@@ -58,7 +58,8 @@ def _config():
     env = load_env()
     if not all(env[k] for k in ENV_KEYS):
         raise RuntimeError("缺少 LONGBRIDGE_APP_KEY / APP_SECRET / ACCESS_TOKEN（见 .env）")
-    return Config(
+    # 注意：SDK 的 Config 不能直接构造，必须走 from_apikey 工厂方法
+    return Config.from_apikey(
         app_key=env["LONGBRIDGE_APP_KEY"],
         app_secret=env["LONGBRIDGE_APP_SECRET"],
         access_token=env["LONGBRIDGE_ACCESS_TOKEN"],
