@@ -260,8 +260,9 @@ def main() -> int:
     if args.skip_existing:
         try:
             existing: set[str] = set()
+            pending_status = {"New", "NotReported", "Submitted", "PartFilled", "WaitingSubmit"}
             for o in cli_json(["order"]) or []:
-                if isinstance(o, dict) and o.get("symbol"):
+                if isinstance(o, dict) and o.get("symbol") and o.get("status") in pending_status:
                     existing.add(o["symbol"])
             for pos in cli_json(["positions"]) or []:
                 if isinstance(pos, dict) and pos.get("symbol"):

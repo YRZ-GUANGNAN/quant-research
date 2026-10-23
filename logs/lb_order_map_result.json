@@ -1,75 +1,132 @@
 [
   {
-    "symbol": "0939.HK",
+    "symbol": "ACN.US",
     "side": "buy",
-    "quantity": 3500,
-    "price": 9.785,
-    "last": 9.775,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
-  },
-  {
-    "symbol": "0386.HK",
-    "side": "buy",
-    "quantity": 7600,
-    "price": 4.49,
-    "last": 4.48,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
-  },
-  {
-    "symbol": "0883.HK",
-    "side": "buy",
-    "quantity": 1400,
-    "price": 23.21,
-    "last": 23.16,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
-  },
-  {
-    "symbol": "0322.HK",
-    "side": "buy",
-    "quantity": 2700,
-    "price": 12.39,
-    "last": 12.37,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
-  },
-  {
-    "symbol": "0006.HK",
-    "side": "buy",
-    "quantity": 500,
-    "price": 60.7,
-    "last": 60.65,
-    "lot": 100,
+    "quantity": 58,
+    "price": 246.74,
+    "last": 244.3,
+    "lot": 1,
     "status": "submitted",
-    "order_id": "1298188160613752832"
+    "order_id": "1298300107212468224"
   },
   {
-    "symbol": "0003.HK",
+    "symbol": "TMO.US",
     "side": "buy",
-    "quantity": 4700,
-    "price": 7.185,
-    "last": 7.175,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+    "quantity": 21,
+    "price": 675.67,
+    "last": 668.98,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300113365512192"
   },
   {
-    "symbol": "0316.HK",
+    "symbol": "DHR.US",
     "side": "buy",
-    "quantity": 200,
-    "price": 149.9,
-    "last": 149.8,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+    "quantity": 63,
+    "price": 229.12,
+    "last": 226.855,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300127747776512"
   },
   {
-    "symbol": "0857.HK",
+    "symbol": "MRK.US",
     "side": "buy",
-    "quantity": 3500,
-    "price": 9.655,
-    "last": 9.645,
-    "lot": 100,
-    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+    "quantity": 99,
+    "price": 145.69,
+    "last": 144.25,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300135977000960"
+  },
+  {
+    "symbol": "AMD.US",
+    "side": "buy",
+    "quantity": 27,
+    "price": 526.12,
+    "last": 520.91,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300141765140480"
+  },
+  {
+    "symbol": "MA.US",
+    "side": "buy",
+    "quantity": 23,
+    "price": 629.22,
+    "last": 622.99,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300149700767744"
+  },
+  {
+    "symbol": "PG.US",
+    "side": "buy",
+    "quantity": 88,
+    "price": 163.22,
+    "last": 161.605,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300156600397824"
+  },
+  {
+    "symbol": "META.US",
+    "side": "buy",
+    "quantity": 22,
+    "price": 653.73,
+    "last": 647.26,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300162719887360"
+  },
+  {
+    "symbol": "AMZN.US",
+    "side": "buy",
+    "quantity": 57,
+    "price": 251.46,
+    "last": 248.975,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300169355272192"
+  },
+  {
+    "symbol": "ABBV.US",
+    "side": "buy",
+    "quantity": 50,
+    "price": 286.88,
+    "last": 284.035,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300177433501696"
+  },
+  {
+    "symbol": "ADBE.US",
+    "side": "buy",
+    "quantity": 54,
+    "price": 267.19,
+    "last": 264.545,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300187621466112"
+  },
+  {
+    "symbol": "QCOM.US",
+    "side": "buy",
+    "quantity": 81,
+    "price": 176.67,
+    "last": 174.92,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300197209645056"
+  },
+  {
+    "symbol": "LLY.US",
+    "side": "buy",
+    "quantity": 11,
+    "price": 1296.09,
+    "last": 1283.26,
+    "lot": 1,
+    "status": "submitted",
+    "order_id": "1298300209876447232"
   }
 ]
