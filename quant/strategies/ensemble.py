@@ -56,6 +56,8 @@ class PhaseEnsembleStrategy:
     min_exposure: float = 0.0
     vol_cap: float | None = None
     beta_cap: float | None = None
+    # 静态仓位系数：1.0=满仓；0.7=70% 股票 + 30% 现金（机械降回撤）
+    exposure_scale: float = 1.0
     # 共识变化阈值：新旧目标权重的单边换手率低于该值就不下发新目标（不交易）。
     # 0 = 每次校准都执行；0.08 约等于「目标权重有 8% 以上变化才动手」。
     min_change: float = 0.0
@@ -109,7 +111,7 @@ class PhaseEnsembleStrategy:
         s = sum(v for _, v in ranked)
         if s <= 0:
             return {}
-        gross = 1.0 - self.cfg.cash_buffer
+        gross = (1.0 - self.cfg.cash_buffer) * max(0.0, min(1.0, self.exposure_scale))
         return {code: v / s * gross for code, v in ranked}
 
     def target_weights(self, date: pd.Timestamp) -> dict[str, float]:

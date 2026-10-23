@@ -72,6 +72,8 @@ def main() -> int:
                     help="择时触发时的仓位（0=清仓，0.5=半仓）")
     ap.add_argument("--vol-cap", type=float, default=None,
                     help="波动率上限分位（0.8=剔除波动率最高20%）")
+    ap.add_argument("--exposure", type=float, default=1.0,
+                    help="静态仓位系数（0.7=70%仓位+30%现金）")
     ap.add_argument("--beta-cap", type=float, default=None,
                     help="个股 beta 上限（如 0.9）")
     ap.add_argument("--min-change", type=float, default=0.0,
@@ -110,6 +112,8 @@ def main() -> int:
         label_parts.append(f"vcap{args.vol_cap}")
     if args.beta_cap:
         label_parts.append(f"bcap{args.beta_cap}")
+    if args.exposure != 1.0:
+        label_parts.append(f"exp{args.exposure}")
     if args.buffer > 1.0:
         label_parts.append(f"buf{args.buffer}")
     label_parts.append(f"k{args.topk}")
@@ -138,6 +142,7 @@ def main() -> int:
                 min_exposure=args.min_exposure, vol_cap=args.vol_cap,
                 min_change=args.min_change,
                 beta_cap=args.beta_cap,
+                exposure_scale=args.exposure,
             )
         elif args.ic_gate:
             from quant.strategies.overlay import ICMonitorOverlay
