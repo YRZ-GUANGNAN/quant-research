@@ -67,6 +67,16 @@ def build_factors(panel: Panel) -> dict[str, pd.DataFrame]:
     f["log_amount"] = np.log(amount.rolling(20).mean().where(lambda x: x > 0))
     f["log_price"] = np.log(close.where(lambda x: x > 0))
 
+    # --- 微观结构（OHLC 派生，不依赖新数据源）---
+    # 跨 2018-2025 三段符号一致的候选：量价相关（负）、日内收益（负）、隔夜跳空（正）
+    op = panel.get("open")
+    hi = panel.get("high")
+    lo = panel.get("low")
+    f["overnight_20"] = (op / close.shift(1) - 1.0).rolling(20).mean()
+    f["intraday_20"] = (close / op - 1.0).rolling(20).mean()
+    f["range_20"] = ((hi - lo) / close).rolling(20).mean()
+    f["vol_price_corr_60"] = ret.rolling(60).corr(volume.pct_change())
+
     # --- 相对基准的 beta / 超额动量 ---
     bench_ret = panel.benchmark.pct_change()
     cov = ret.rolling(60).cov(bench_ret)

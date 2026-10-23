@@ -15,7 +15,7 @@ PRESETS: dict[str, dict[str, float]] = {
     "momentum": {"mom_60": 1.0},
     "reversal": {"rev_5": 1.0},
     "multi": {"mom_60": 0.4, "rev_5": 0.3, "vol_20": -0.2, "turnover_20": -0.1},
-    # 决策 0005 冻结模型
+    # v3 固定权重（决策 0005 冻结模型）
     "ic_tilt": {
         "amihud_20": 0.35,
         "rev_20": 0.20,
@@ -23,6 +23,18 @@ PRESETS: dict[str, dict[str, float]] = {
         "log_amount": -0.20,
         "ma_gap_60": -0.10,
         "vol_20": -0.05,
+    },
+    # v5 候选：加入三段符号稳定的微观结构因子（量价相关/日内收益/隔夜跳空）
+    "ic_tilt2": {
+        "amihud_20": 0.30,
+        "rev_20": 0.20,
+        "rev_5": 0.12,
+        "log_amount": -0.18,
+        "ma_gap_60": -0.08,
+        "vol_20": -0.05,
+        "vol_price_corr_60": -0.15,
+        "intraday_20": -0.10,
+        "overnight_20": 0.05,
     },
 }
 
