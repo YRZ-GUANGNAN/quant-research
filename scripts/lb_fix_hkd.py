@@ -1,4 +1,4 @@
-﻿"""把港币负现金补正：卖出 HK 持仓直到 HKD 可用现金 >= 阈值。
+"""把港币负现金补正：卖出 HK 持仓直到 HKD 可用现金 >= 阈值。
 
 背景：Longbridge OpenAPI 没有换汇接口，港股买入导致 HKD 负现金（保证金透支），
 后续订单报 Insufficient Credit Limit。本脚本提供「卖出补正」的兜底方案。
@@ -62,6 +62,16 @@ def main() -> int:
         return 0
 
     pos = [p for p in (cli(["positions"]) or []) if str(p.get("symbol", "")).endswith(".HK")]
+    # 幂等：跳过已有未成交挂单的标的，避免重复卖出
+    pending_symbols = set()
+    try:
+        for o in cli(["order"]) or []:
+            if isinstance(o, dict) and o.get("status") in ("NotReported", "New", "Submitted", "PartFilled"):
+                pending_symbols.add(o.get("symbol"))
+    except Exception:
+        pass
+    if pending_symbols:
+        print(f"[plan] 已有挂单标的（跳过）: {sorted(pending_symbols)}")
     quotes = {}
     syms = [p["symbol"] for p in pos]
     for i in range(0, len(syms), 20):
@@ -70,6 +80,8 @@ def main() -> int:
     plan = []
     for p in pos:
         sym = p["symbol"]
+        if sym in pending_symbols:
+            continue
         qty = int(float(p["quantity"]))
         last = quotes.get(sym, 0)
         price = round(last - hk_tick(last), 3) if last > 0 else 0
@@ -106,12 +118,26 @@ def main() -> int:
     results = []
     for d in done:
         try:
-            prev = cli(["order", "sell", d["symbol"], str(d["qty"]), "--price", f"{d['price']:.3f}"])
-            code = prev.get("confirmation_code")
-            if not code:
-                results.append({"symbol": d["symbol"], "status": "no-code"}); continue
-            resp = cli(["order", "sell", d["symbol"], str(d["qty"]), "--price", f"{d['price']:.3f}",
-                        "--execute", code])
+            # tick 边界兜底：依次尝试 计算价 / 最新价 / 最新价-0.01 / 最新价*0.99
+            last = d.get("last", d["price"])
+            attempts = [f"{d['price']:.3f}", f"{last:.3f}", f"{last - 0.01:.3f}", f"{last * 0.99:.3f}"]
+            code = None
+            resp = None
+            err = None
+            for price_txt in attempts:
+                try:
+                    prev = cli(["order", "sell", d["symbol"], str(d["qty"]), "--price", price_txt])
+                    code = prev.get("confirmation_code")
+                    if not code:
+                        continue
+                    resp = cli(["order", "sell", d["symbol"], str(d["qty"]),
+                                "--price", price_txt, "--execute", code])
+                    break
+                except Exception as exc:
+                    err = exc
+            if resp is None:
+                results.append({"symbol": d["symbol"], "status": f"error: {str(err)[:70]}"})
+                continue
             results.append({"symbol": d["symbol"], "status": "submitted",
                             "order_id": resp.get("order_id")})
         except Exception as exc:
