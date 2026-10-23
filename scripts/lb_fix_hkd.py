@@ -30,6 +30,17 @@ def cli(args, timeout=40):
         return json.loads(out[s:e + 1]) if s >= 0 else {}
 
 
+HK_TICKS = [(0.25, 0.001), (0.5, 0.005), (10, 0.01), (20, 0.02), (100, 0.05),
+            (200, 0.1), (500, 0.2), (1000, 0.5), (2000, 1), (5000, 2), (float("inf"), 5)]
+
+
+def hk_tick(price: float) -> float:
+    for upper, tick in HK_TICKS:
+        if price < upper:
+            return tick
+    return 5.0
+
+
 def hkd_cash() -> float:
     for a in cli(["assets"]) or []:
         for c in a.get("cash_infos") or []:
@@ -60,7 +71,8 @@ def main() -> int:
     for p in pos:
         sym = p["symbol"]
         qty = int(float(p["quantity"]))
-        price = quotes.get(sym, 0) * 0.99
+        last = quotes.get(sym, 0)
+        price = round(last - hk_tick(last), 3) if last > 0 else 0
         if price <= 0 or qty <= 0:
             continue
         plan.append({"symbol": sym, "qty": qty, "price": round(price, 3),
