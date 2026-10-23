@@ -1,0 +1,90 @@
+[
+  {
+    "symbol": "2269.HK",
+    "side": "buy",
+    "quantity": 5500,
+    "price": 44.95,
+    "lot": 500,
+    "status": "error: Error: API error (code 602035): Wrong bid size, please change the price\n  trace_id: f3ce51"
+  },
+  {
+    "symbol": "0939.HK",
+    "side": "buy",
+    "quantity": 25000,
+    "price": 9.94,
+    "lot": 1000,
+    "status": "submitted",
+    "order_id": "1298125747029815296"
+  },
+  {
+    "symbol": "0386.HK",
+    "side": "buy",
+    "quantity": 56000,
+    "price": 4.5600000000000005,
+    "lot": 2000,
+    "status": "submitted",
+    "order_id": "1298125752692125696"
+  },
+  {
+    "symbol": "0883.HK",
+    "side": "buy",
+    "quantity": 11000,
+    "price": 23.35,
+    "lot": 1000,
+    "status": "error: Error: API error (code 602035): Wrong bid size, please change the price\n  trace_id: 168aab"
+  },
+  {
+    "symbol": "3968.HK",
+    "side": "buy",
+    "quantity": 4500,
+    "price": 52.650000000000006,
+    "lot": 500,
+    "status": "submitted",
+    "order_id": "1298125764364869632"
+  },
+  {
+    "symbol": "0322.HK",
+    "side": "buy",
+    "quantity": 20000,
+    "price": 12.620000000000001,
+    "lot": 2000,
+    "status": "submitted",
+    "order_id": "1298125770312396800"
+  },
+  {
+    "symbol": "0006.HK",
+    "side": "buy",
+    "quantity": 4000,
+    "price": 61.300000000000004,
+    "lot": 500,
+    "status": "submitted",
+    "order_id": "1298125776238944256"
+  },
+  {
+    "symbol": "0003.HK",
+    "side": "buy",
+    "quantity": 35000,
+    "price": 7.26,
+    "lot": 1000,
+    "status": "submitted",
+    "order_id": "1298125782433935360"
+  },
+  {
+    "symbol": "0316.HK",
+    "side": "buy",
+    "quantity": 1500,
+    "price": 153.70000000000002,
+    "lot": 500,
+    "status": "submitted",
+    "order_id": "1298125788427591680"
+  },
+  {
+    "symbol": "0857.HK",
+    "side": "buy",
+    "quantity": 26000,
+    "price": 9.86,
+    "lot": 2000,
+    "status": "submitted",
+    "order_id": "1298125796396769280"
+  }
+]
