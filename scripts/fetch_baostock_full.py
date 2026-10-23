@@ -43,16 +43,26 @@ def main() -> int:
             except Exception as exc:  # noqa: BLE001
                 failed.append((code, str(exc)[:60]))
             if i % 50 == 0:
+                flush_partial()
                 print(f"  [bs-full] {i}/{len(codes)}  {time.time()-t0:.0f}s  失败 {len(failed)}", flush=True)
+
+    def flush_partial() -> None:
+        if not frames:
+            return
+        new = pd.concat(frames, ignore_index=True)
+        merged = store.upsert_bars(new, market="cn")
+        print(f"[bs-full] 中途落盘 {len(new)} 行（缓存 {len(merged)} 行）", flush=True)
+        frames.clear()
 
     if frames:
         new = pd.concat(frames, ignore_index=True)
         merged = store.upsert_bars(new, market="cn")
         print(f"[bs-full] 写入 {len(new)} 行，合并后缓存 {len(merged)} 行，覆盖 "
               f"{merged['date'].min().date()} ~ {merged['date'].max().date()}")
-    print(f"[bs-full] 完成：成功 {len(frames)} 只，失败 {len(failed)} 只，用时 {time.time()-t0:.0f}s")
+    print(f"[bs-full] 完成：失败 {len(failed)} 只，用时 {time.time()-t0:.0f}s")
     if failed:
         print("[bs-full] 失败示例:", failed[:5])
+        return 1  # 有失败必须让上层感知
     return 0
 
 

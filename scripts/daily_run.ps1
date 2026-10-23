@@ -8,6 +8,7 @@ function Run-Step([string]$desc, [scriptblock]$cmd) {
 }
 Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
+$env:LB_ACCOUNT_KIND = "paper"  # 代码级护栏：仅允许模拟账户下单
 
 Write-Host "=== 1/5 更新 A 股行情（腾讯，失败则跳过）==="
 Run-Step "fetch_tx" { python scripts/fetch_tx.py --workers 8 }

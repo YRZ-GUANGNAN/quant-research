@@ -214,7 +214,10 @@ def main() -> int:
     ap.add_argument("--only", choices=["us", "hk", "sg", "both"], default="both")
     ap.add_argument("--skip-existing", action="store_true", help="跳过今日已有订单的标的")
     args = ap.parse_args()
-    args.dry_run = not args.execute  # 默认 dry-run：必须显式 --execute 才会提交
+    args.dry_run = not args.execute
+    if args.execute and os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
+        print("[guard] 拒绝执行：请设置环境变量 LB_ACCOUNT_KIND=paper 确认当前为模拟账户")
+        raise SystemExit(2)  # 默认 dry-run：必须显式 --execute 才会提交
 
     total = net_assets_usd()
     print(f"[broker] 模拟盘净资产 USD {total:,.2f}")

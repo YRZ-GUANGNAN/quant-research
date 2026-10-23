@@ -15,8 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
-from lb_order_map import (cli_json, market_sessions, net_assets_usd, quotes,
-                          sleeve_targets, USD_HKD)  # noqa
+from lb_order_map import (cli_json, lot_sizes, market_sessions, net_assets_usd,
+                          quotes, sleeve_targets, USD_HKD)  # noqa
 
 WEIGHT = {"us": 0.75, "hk": 0.25}
 
@@ -43,6 +43,10 @@ def main() -> int:
     ap.add_argument("--execute", action="store_true")
     ap.add_argument("--threshold", type=float, default=0.15)
     args = ap.parse_args()
+    # 代码级护栏：执行真实下单前必须显式声明这是模拟账户（防止登录账号被换成实盘）
+    if args.execute and os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
+        print("[guard] 拒绝执行：请设置环境变量 LB_ACCOUNT_KIND=paper 确认当前为模拟账户")
+        return 2
 
     sess = market_sessions()
     mkt = "US" if args.market == "us" else "HK"
@@ -75,9 +79,13 @@ def main() -> int:
                 return tick
         return 5.0
 
+    _lots = lot_sizes([x for x in list(weights) if x.endswith(".HK")]) if any(
+        x.endswith(".HK") for x in weights) else {}
+
     def round_qty(sym: str, qty: float) -> int:
         if sym.endswith(".HK"):
-            return int(qty // 100 * 100)
+            lot = max(1, int(_lots.get(sym, 100)))
+            return int(qty // lot * lot)
         return int(qty)
 
     plan = []

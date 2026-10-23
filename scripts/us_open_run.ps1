@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Continue"
 Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
+$env:LB_ACCOUNT_KIND = "paper"  # 代码级护栏：仅允许模拟账户下单
 Write-Host "=== 更新美股行情（Yahoo）==="
 python scripts/fetch_market.py --market us
 
