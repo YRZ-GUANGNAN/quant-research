@@ -1,0 +1,22 @@
+﻿{
+  "name": "ic_tilt_ensemble_v3_lowdd",
+  "strategy": "ic_tilt 4 相位共识 + top_k40 + 35日调仓 + 静态仓位 0.70",
+  "created_at": "2026-10-23T12:00:00+08:00",
+  "base": "models/model_v3.json",
+  "exposure_scale": 0.7,
+  "metrics_2phases": {
+    "annual_return": 0.1174,
+    "annual_return_std": 0.0032,
+    "max_drawdown": -0.1912,
+    "turnover": 7.19,
+    "validation_oos_annual": 0.0494
+  },
+  "comparison_full_exposure": {
+    "annual_return": 0.1558,
+    "max_drawdown": -0.2753,
+    "turnover": 10.36,
+    "validation_oos_annual": 0.0642
+  },
+  "purpose": "满足 -20% 最大回撤约束；代价为年化 -3.84pp。暴露层缩放，不改选股。",
+  "caveat": "2 相位实测；4 相位复核待补。仅为模拟盘配置，不是可实盘承诺。"
+}

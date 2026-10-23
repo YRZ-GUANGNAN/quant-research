@@ -59,6 +59,8 @@ def main() -> int:
     ap.add_argument("--topk", type=int, default=MODEL["top_k"])
     ap.add_argument("--export", action="store_true")
     ap.add_argument("--cash", type=float, default=1_000_000.0)
+    ap.add_argument("--exposure", type=float, default=0.70,
+                    help="静态仓位系数（0.70=低回撤模式）")
     args = ap.parse_args()
 
     ensure_dirs()
@@ -87,6 +89,9 @@ def main() -> int:
         print(f"[model] {last_date.date()} 无有效目标组合（数据不足或非调仓日）")
         return 1
 
+    if args.exposure != 1.0:
+        weights = {code: w * args.exposure for code, w in weights.items()}
+        print(f"[exposure] 已按 {args.exposure:.2f} 仓位缩放（低回撤模式）")
     print(f"=== {MODEL['name']} · 目标组合 @ {last_date.date()} ===")
     print(f"因子权重: {MODEL['factor_weights']}")
     print(f"目标持仓 {len(weights)} 只，总仓位 {sum(weights.values()):.1%}\n")
@@ -130,6 +135,7 @@ def main() -> int:
             "data_start": str(panel.dates[0].date()),
             "data_end": str(last_date.date()),
             "n_codes": len(panel.codes),
+            "exposure_scale": args.exposure,
             "targets": {code: round(w, 6) for code, w in weights.items()},
         }
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
