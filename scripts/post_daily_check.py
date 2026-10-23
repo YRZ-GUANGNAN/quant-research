@@ -71,9 +71,29 @@ def main() -> int:
     except Exception:
         pass
 
+    def _cli_ok(args):
+        try:
+            r = subprocess.run([str(LB), *args, "--format", "json"], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=40)
+            return r.returncode == 0, (r.stdout or "")[:200]
+        except Exception as exc:  # noqa: BLE001
+            return False, str(exc)[:120]
+
+    ok, out = _cli_ok(["assets"])
+    checks.append({"item": "Longbridge 连接", "value": out[:80],
+                   "status": "PASS" if ok else "FAIL"})
+
     report = ROOT / "reports" / f"broker_daily_{today}.md"
     checks.append({"item": "今日经纪报告", "value": str(report.name),
                    "status": "PASS" if report.exists() else "WARN"})
+
+    if report.exists() and today.weekday() < 5:
+        late = report.stat().st_mtime - report.parent.stat().st_mtime
+        import datetime as _dt
+        mtime = _dt.datetime.fromtimestamp(report.stat().st_mtime)
+        if mtime.hour * 60 + mtime.minute > 15 * 60 + 40:
+            checks.append({"item": "任务延迟", "value": mtime.strftime("%H:%M"), "status": "WARN",
+                           "note": "报告生成晚于 15:40，可能是睡眠后补跑"})
 
     print(f"=== 每日自检 {today} ===")
     for c in checks:

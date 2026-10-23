@@ -101,7 +101,10 @@ def market_sessions() -> dict[str, str]:
             if isinstance(row, dict) and row.get("market"):
                 out[str(row["market"]).upper()] = str(row.get("status", "?"))
     except Exception as exc:  # noqa: BLE001
-        print(f"[session] 查询失败，按全时段处理: {str(exc)[:80]}")
+        print(f"[session] 查询失败，按「全部不可交易」处理（安全优先）: {str(exc)[:80]}")
+        return {}
+    if not out:
+        return {}
     return out
 
 
@@ -222,17 +225,17 @@ def main() -> int:
 
     sessions = market_sessions()
     print(f"[session] {sessions}")
-    if args.only in ("us", "both") and sessions.get("US") not in (None, "Trading"):
+    if args.only in ("us", "both") and sessions.get("US") != "Trading":
         print(f"[skip] 美股当前 {sessions.get('US')}，跳过美股下单（避免休市拒单）")
         us_ok = False
     else:
         us_ok = True
-    if args.only in ("sg", "both") and sessions.get("SG") not in (None, "Trading"):
+    if args.only in ("sg", "both") and sessions.get("SG") != "Trading":
         print(f"[skip] 新加坡当前 {sessions.get('SG')}，跳过 SG 下单")
         sg_ok = False
     else:
         sg_ok = True
-    if args.only in ("hk", "both") and sessions.get("HK") not in (None, "Trading"):
+    if args.only in ("hk", "both") and sessions.get("HK") != "Trading":
         print(f"[skip] 港股当前 {sessions.get('HK')}，跳过港股下单")
         hk_ok = False
     else:

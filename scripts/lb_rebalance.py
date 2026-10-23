@@ -56,11 +56,20 @@ def main() -> int:
     weights = sleeve_targets(args.market, topk, suffix)
     q = quotes(list(weights))
     pos = positions_map()
+    pending_symbols: set[str] = set()
+    try:
+        for o in cli_json(["order"]) or []:
+            if isinstance(o, dict) and o.get("status") in ("New", "NotReported", "Submitted", "PartFilled"):
+                pending_symbols.add(o.get("symbol"))
+    except Exception:
+        pass
     cash = cash_of("USD" if args.market == "us" else "HKD")
     print(f"[rebalance] {args.market} 预算 {budget:,.0f}，可用现金 {cash:,.0f}，持仓 {len(pos)} 只")
 
     plan = []
     for sym, w in weights.items():
+        if sym in pending_symbols:
+            continue
         info = q.get(sym)
         if not info or not info.get("last"):
             continue
@@ -80,7 +89,8 @@ def main() -> int:
     sells = [p for p in plan if p["side"] == "sell"]
     buys = [p for p in plan if p["side"] == "buy"]
     gross_sell = sum(p["qty"] * p["price"] for p in sells)
-    cap = cash + gross_sell * 0.9
+    # 卖单可能未成交：不把预计卖出金额当购买力（安全优先）
+    cap = cash
     kept, used = [], 0.0
     for p in sorted(buys, key=lambda x: -x["qty"] * x["price"]):
         v = p["qty"] * p["price"]

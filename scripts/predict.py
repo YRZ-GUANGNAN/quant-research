@@ -69,19 +69,14 @@ def main() -> int:
     last_date = panel.dates[-1]
 
     if MODEL.get("ensemble"):
-        # 相位共识：每个相位独立选股，再把权重加总取前 top_k（与 PhaseEnsembleStrategy 一致）
-        total: dict[str, float] = {}
-        for off in MODEL["phases"]:
-            member = TopKStrategy(
-                panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"],
-                warmup=130 + off,
-            )
-            for code, w in member.target_weights(last_date).items():
-                total[code] = total.get(code, 0.0) + w
-        ranked = sorted(total.items(), key=lambda kv: -kv[1])[: cfg.top_k]
-        s = sum(v for _, v in ranked) or 1.0
-        gross = 1.0 - cfg.cash_buffer
-        weights = {code: v / s * gross for code, v in ranked}
+        from quant.strategies.ensemble import PhaseEnsembleStrategy
+        strat = PhaseEnsembleStrategy(
+            panel=panel, cfg=cfg, name=MODEL.get("preset") or "ic_tilt",
+            warmup=130, offsets=tuple(MODEL["phases"]),
+            exposure_scale=args.exposure,
+        )
+        strat.replay(len(panel.dates) - 1)
+        weights = strat.target_weights(last_date)
     else:
         strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=MODEL["factor_weights"])
         weights = strat.target_weights(last_date)
@@ -89,7 +84,7 @@ def main() -> int:
         print(f"[model] {last_date.date()} 无有效目标组合（数据不足或非调仓日）")
         return 1
 
-    if args.exposure != 1.0:
+    if args.exposure != 1.0 and not MODEL.get("ensemble"):
         weights = {code: w * args.exposure for code, w in weights.items()}
         print(f"[exposure] 已按 {args.exposure:.2f} 仓位缩放（低回撤模式）")
     print(f"=== {MODEL['name']} · 目标组合 @ {last_date.date()} ===")

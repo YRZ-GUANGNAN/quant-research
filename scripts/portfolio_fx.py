@@ -43,15 +43,19 @@ def load_fx() -> tuple[pd.Series, pd.Series]:
           f"最新 {usd.iloc[-1]:.4f}）")
     print(f"[fx] HKD/CNY {len(hkd)} 行（{hkd.index.min().date()}~{hkd.index.max().date()}，"
           f"最新 {hkd.iloc[-1]:.4f}）")
-    return usd.pct_change(), hkd.pct_change()
+    # 返回价格序列（不是收益率）：必须在价格层面先对齐再 pct_change，
+    # 否则 reindex + ffill 会在汇率休市日重复上一日收益，造成汇率贡献被高估
+    return usd, hkd
 
 
 def to_cny(rets: pd.Series, fx_ret: pd.Series | None) -> pd.Series:
     """把本地货币收益换算成人民币收益。"""
     if fx_ret is None:
         return rets
-    aligned = fx_ret.reindex(rets.index).ffill().fillna(0.0)
-    return (1.0 + rets) * (1.0 + aligned) - 1.0
+    # 价格层面先并集对齐 + ffill，再算日收益，最后对齐到收益日期
+    fx_aligned = fx_ret.reindex(fx_ret.index.union(rets.index)).ffill().reindex(rets.index)
+    fx_daily = fx_aligned.pct_change().fillna(0.0)
+    return (1.0 + rets) * (1.0 + fx_daily) - 1.0
 
 
 def main() -> int:

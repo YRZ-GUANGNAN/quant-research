@@ -114,6 +114,17 @@ class PhaseEnsembleStrategy:
         gross = (1.0 - self.cfg.cash_buffer) * max(0.0, min(1.0, self.exposure_scale))
         return {code: v / s * gross for code, v in ranked}
 
+    def replay(self, until_index: int | None = None) -> None:
+        """把各相位状态机从第一天重放到 until_index（含）。
+
+        用途：进程重启后 _current 只存在内存里，必须重放历史，
+        否则共识为空（或只有部分相位），与回测口径不一致。
+        """
+        dates = self.panel.dates
+        end = len(dates) - 1 if until_index is None else min(until_index, len(dates) - 1)
+        for i in range(end + 1):
+            self._update_members(i, dates[i])
+
     def target_weights(self, date: pd.Timestamp) -> dict[str, float]:
         return self.consensus(date)
 

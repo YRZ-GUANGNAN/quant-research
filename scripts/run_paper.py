@@ -82,6 +82,9 @@ def main() -> int:
         state = PaperState.create(args.cash, warmup=130)
         print("[paper] 新建模拟账户，初始资金 %.0f 元" % args.cash)
 
+    if hasattr(strategy, "replay"):
+        strategy.replay(len(panel.dates) - 1)
+        print("[paper] 相位状态已重放到最新日期（重启后共识与回测一致）")
     trader = PaperTrader(panel=panel, cfg=cfg, strategy=strategy, state=state, warmup=130)
     records = trader.run()
 
