@@ -38,10 +38,13 @@ class TopKStrategy:
     # 波动率上限过滤：排除当日 20 日波动率处于截面高分位的股票。
     # 例如 0.8 = 只在波动率低于 80% 分位的股票里选，直接削掉尾部风险。
     vol_cap_quantile: float | None = None
+    # 个股 beta 上限：排除高 beta 股票，用于压低组合的方向性暴露（亏损主因）
+    beta_cap: float | None = None
 
     _score: pd.DataFrame = field(init=False, repr=False)
     _amount: pd.DataFrame = field(init=False, repr=False)
     _vol20: pd.DataFrame = field(init=False, repr=False)
+    _beta60: pd.DataFrame = field(init=False, repr=False)
     _held: list[str] = field(init=False, repr=False, default_factory=list)
 
     def __post_init__(self) -> None:
@@ -50,6 +53,10 @@ class TopKStrategy:
         amount = self.panel.get("amount")
         self._amount = amount.rolling(20).mean()
         self._vol20 = self.panel.close.pct_change().rolling(20).std()
+        ret = self.panel.close.pct_change()
+        bench_ret = self.panel.benchmark.pct_change()
+        self._beta60 = ret.rolling(60).cov(bench_ret).div(
+            bench_ret.rolling(60).var(), axis=0)
 
     # ---------- 选股 ----------
 
@@ -78,6 +85,12 @@ class TopKStrategy:
             vol = self._vol20.loc[date].reindex(score.index)
             thr = float(vol.quantile(self.vol_cap_quantile))
             score = score[vol.fillna(float("inf")) <= thr]
+            if score.empty:
+                return []
+
+        if self.beta_cap is not None and date in self._beta60.index:
+            beta = self._beta60.loc[date].reindex(score.index)
+            score = score[beta.fillna(99.0) <= self.beta_cap]
             if score.empty:
                 return []
 

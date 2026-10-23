@@ -72,6 +72,8 @@ def main() -> int:
                     help="择时触发时的仓位（0=清仓，0.5=半仓）")
     ap.add_argument("--vol-cap", type=float, default=None,
                     help="波动率上限分位（0.8=剔除波动率最高20%）")
+    ap.add_argument("--beta-cap", type=float, default=None,
+                    help="个股 beta 上限（如 0.9）")
     ap.add_argument("--min-change", type=float, default=0.0,
                     help="共识变化阈值：目标权重单边换手低于此值不交易")
     ap.add_argument("--vol-target", type=float, default=None, help="年化波动率目标，如 0.15")
@@ -106,6 +108,8 @@ def main() -> int:
         label_parts.append(f"vol{args.vol_target}")
     if args.vol_cap:
         label_parts.append(f"vcap{args.vol_cap}")
+    if args.beta_cap:
+        label_parts.append(f"bcap{args.beta_cap}")
     if args.buffer > 1.0:
         label_parts.append(f"buf{args.buffer}")
     label_parts.append(f"k{args.topk}")
@@ -133,6 +137,7 @@ def main() -> int:
                 timing=args.timing, vol_target=args.vol_target,
                 min_exposure=args.min_exposure, vol_cap=args.vol_cap,
                 min_change=args.min_change,
+                beta_cap=args.beta_cap,
             )
         elif args.ic_gate:
             from quant.strategies.overlay import ICMonitorOverlay
@@ -158,6 +163,7 @@ def main() -> int:
                 ma_days=args.ma_days,
                 min_exposure=args.min_exposure,
                 vol_cap=args.vol_cap,
+                beta_cap=args.beta_cap,
             )
         result = Backtester(panel, cfg).run(strat.weight_func(), name=f"{run_label}_p{off}")
         seg = segment_metrics(result.nav, result.benchmark_nav)

@@ -55,6 +55,7 @@ class PhaseEnsembleStrategy:
     vol_target: float | None = None
     min_exposure: float = 0.0
     vol_cap: float | None = None
+    beta_cap: float | None = None
     # 共识变化阈值：新旧目标权重的单边换手率低于该值就不下发新目标（不交易）。
     # 0 = 每次校准都执行；0.08 约等于「目标权重有 8% 以上变化才动手」。
     min_change: float = 0.0
@@ -76,6 +77,7 @@ class PhaseEnsembleStrategy:
                 vol_target=self.vol_target,
                 min_exposure=self.min_exposure,
                 vol_cap=self.vol_cap,
+                beta_cap=self.beta_cap,
             )
             for off in self.offsets
         ]
