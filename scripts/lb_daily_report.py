@@ -83,6 +83,7 @@ def main() -> int:
         slip = (avg_fill / avg_limit - 1.0) if (avg_fill and avg_limit) else None
         rows.append({
             "symbol": sym,
+            "market": sym.split(".")[-1] if "." in sym else "?",
             "orders": a["orders"],
             "submitted_qty": a["submitted_qty"],
             "filled_qty": a["filled_qty"],
@@ -135,6 +136,23 @@ def main() -> int:
     if den:
         weighted_slip = num / den
 
+    market_summary: dict[str, dict] = {}
+    for market in sorted({r["market"] for r in rows}):
+        sub = [r for r in rows if r["market"] == market]
+        m_sub = sum(r["submitted_qty"] for r in sub)
+        m_fill = sum(r["filled_qty"] for r in sub)
+        num_m = den_m = 0.0
+        for r in sub:
+            if r["slippage_vs_limit"] is not None and r["filled_qty"]:
+                num_m += r["slippage_vs_limit"] * r["filled_qty"]
+                den_m += r["filled_qty"]
+        market_summary[market] = {
+            "orders": sum(r["orders"] for r in sub),
+            "symbols": len(sub),
+            "fill_rate": round(m_fill / m_sub, 4) if m_sub else 0.0,
+            "weighted_slippage_vs_limit": round(num_m / den_m, 6) if den_m else None,
+        }
+
     statuses: dict[str, int] = defaultdict(int)
     for o in orders:
         statuses[o.get("status", "?")] += 1
@@ -150,6 +168,7 @@ def main() -> int:
         "weighted_slippage_vs_limit": round(weighted_slip, 6) if weighted_slip is not None else None,
         "statuses": dict(statuses),
         "reject_reasons": dict(reasons),
+        "markets": market_summary,
     }
 
     reports = ROOT / "reports"
@@ -165,7 +184,11 @@ def main() -> int:
         f"- 加权滑点（成交价 vs 限价）："
         f"{'—' if weighted_slip is None else f'{weighted_slip * 100:+.3f}%'}",
         f"- 状态分布：{dict(statuses)}",
-        f"- 拒单原因：{dict(reasons)}", "",
+        f"- 拒单原因：{dict(reasons)}",
+        "- 按市场：" + "；".join(
+            f"{m} 成交率 {v['fill_rate']:.0%} 滑点 "
+            f"{'—' if v['weighted_slippage_vs_limit'] is None else f"{v['weighted_slippage_vs_limit'] * 100:+.3f}%"}"
+            for m, v in market_summary.items()), "",
         "| 标的 | 订单 | 下单量 | 成交量 | 成交率 | 成交均价 | 限价均价 | 滑点 |",
         "|---|---|---|---|---|---|---|---|",
     ]
