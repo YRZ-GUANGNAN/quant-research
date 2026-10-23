@@ -1,1 +1,75 @@
-[]
+[
+  {
+    "symbol": "0939.HK",
+    "side": "buy",
+    "quantity": 3500,
+    "price": 9.785,
+    "last": 9.775,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0386.HK",
+    "side": "buy",
+    "quantity": 7600,
+    "price": 4.49,
+    "last": 4.48,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0883.HK",
+    "side": "buy",
+    "quantity": 1400,
+    "price": 23.21,
+    "last": 23.16,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0322.HK",
+    "side": "buy",
+    "quantity": 2700,
+    "price": 12.39,
+    "last": 12.37,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0006.HK",
+    "side": "buy",
+    "quantity": 500,
+    "price": 60.7,
+    "last": 60.65,
+    "lot": 100,
+    "status": "submitted",
+    "order_id": "1298188160613752832"
+  },
+  {
+    "symbol": "0003.HK",
+    "side": "buy",
+    "quantity": 4700,
+    "price": 7.185,
+    "last": 7.175,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0316.HK",
+    "side": "buy",
+    "quantity": 200,
+    "price": 149.9,
+    "last": 149.8,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  },
+  {
+    "symbol": "0857.HK",
+    "side": "buy",
+    "quantity": 3500,
+    "price": 9.655,
+    "last": 9.645,
+    "lot": 100,
+    "status": "error: Error: API error (code 602001): The submitted quantity does not comply with the required m"
+  }
+]

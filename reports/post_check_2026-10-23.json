@@ -3,18 +3,18 @@
   "checks": [
     {
       "item": "A股日线最新日期",
-      "value": "2026-10-22",
-      "status": "WARN",
+      "value": "2026-10-23",
+      "status": "PASS",
       "note": "盘中未收盘时停在上一交易日属正常"
     },
     {
       "item": "本地A股账户",
-      "value": "equity=3,489,370 date=2026-10-22 pos=41",
+      "value": "equity=3,567,701 date=2026-10-23 pos=41",
       "status": "PASS"
     },
     {
       "item": "券商模拟盘",
-      "value": "orders={'Rejected': 27, 'Filled': 17, 'NotReported': 11, 'Canceled': 9} positions=12",
+      "value": "orders={'Filled': 28, 'Rejected': 27, 'New': 4, 'Canceled': 9} positions=16",
       "status": "PASS"
     },
     {
@@ -23,5 +23,5 @@
       "status": "PASS"
     }
   ],
-  "warns": 1
+  "warns": 0
 }
