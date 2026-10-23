@@ -137,7 +137,8 @@ class Panel:
         bench = idx.set_index("date")["close"].sort_index().reindex(frames["close"].index).ffill()
 
         mask = None
-        if market == "cn":
+        # cn 之外还有 cn500 等 A 股子市场：只要 key 以 cn 开头就加载时点成分股掩码
+        if market.startswith("cn"):
             members = store.load_members(str(index_code).zfill(6))
             mask = cls._build_mask(members, frames["close"].index, list(frames["close"].columns))
 
