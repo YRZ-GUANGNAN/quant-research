@@ -1,4 +1,4 @@
-﻿"""按目标权重再平衡券商模拟盘（补仓/减仓，而不只是买新标的）。
+"""按目标权重再平衡券商模拟盘（补仓/减仓，而不只是买新标的）。
 
 与 lb_order_map 的区别：
 - lb_order_map：只买目标里「尚未持有」的标的（跳过持仓）；
@@ -15,7 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
-from lb_order_map import cli_json, net_assets_usd, quotes, sleeve_targets, USD_HKD  # noqa
+from lb_order_map import (cli_json, market_sessions, net_assets_usd, quotes,
+                          sleeve_targets, USD_HKD)  # noqa
 
 WEIGHT = {"us": 0.75, "hk": 0.25}
 
@@ -43,6 +44,11 @@ def main() -> int:
     ap.add_argument("--threshold", type=float, default=0.15)
     args = ap.parse_args()
 
+    sess = market_sessions()
+    mkt = "US" if args.market == "us" else "HK"
+    if sess.get(mkt) not in (None, "Trading"):
+        print(f"[skip] {mkt} 当前 {sess.get(mkt)}，跳过再平衡（避免休市拒单）")
+        return 0
     total = net_assets_usd()
     budget = total * WEIGHT[args.market] * (USD_HKD if args.market == "hk" else 1.0)
     suffix = ".US" if args.market == "us" else ".HK"
