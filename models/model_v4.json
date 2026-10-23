@@ -2,7 +2,7 @@
   "name": "multi_market_v4",
   "strategy": "跨市场收益源组合（A股相位共识 + 美股动量 + 港股动量），人民币计价",
   "created_at": "2026-10-23T00:30:00+00:00",
-  "updated_at": "2026-10-23T10:45:00+08:00",
+  "updated_at": "2026-10-23T11:10:00+08:00",
   "base_currency": "CNY",
   "sleeves": {
     "cn_v3": {
@@ -18,7 +18,8 @@
       },
       "top_k": 40,
       "rebalance_days": 35,
-      "weight_in_portfolio": 0.6
+      "weight_in_portfolio": 0.6,
+      "low_turnover_variant": {"rebalance_days": 50, "turnover": 7.75, "annual_return": 0.1289}
     },
     "us_momentum": {
       "market": "us",
@@ -48,31 +49,40 @@
     "r12_positive": 0.872
   },
   "metrics_cny_adjusted": {
-    "phases": 2,
-    "phase_note": "仅跑 0/5 两个相位，4 相位复核待补（不得当作已完成的 S1 判定）",
-    "annual_return": 0.1681,
-    "annual_return_std": 0.0041,
-    "sharpe": 1.03,
-    "max_drawdown": -0.2213,
-    "month_positive": 0.638,
-    "quarter_positive": 0.771,
-    "r12_positive": 0.923
+    "phases": 4,
+    "annual_return": 0.1656,
+    "annual_return_std": 0.0053,
+    "annual_vol": 0.1639,
+    "sharpe": 1.0171,
+    "sharpe_std": 0.0303,
+    "max_drawdown": -0.2262,
+    "max_drawdown_std": 0.0105,
+    "month_positive": 0.6333,
+    "month_positive_std": 0.0106,
+    "quarter_positive": 0.7643,
+    "r6_positive": 0.7798,
+    "r12_positive": 0.9148
+  },
+  "s_checks_cny": {
+    "S1_phase_std_le_1.5pct": true,
+    "S8_month_positive_ge_55pct": true,
+    "S9_quarter_positive_ge_60pct": true,
+    "12m_positive_ge_80pct": true
   },
   "turnover_control": {
     "baseline_turnover": 10.36,
     "min_change_0.10": 10.08,
-    "min_change_0.20": 9.30,
-    "target": 8.0,
-    "status": "未达标，需延长调仓周期/加大缓冲"
+    "min_change_0.20": 9.3,
+    "reb50": 7.75,
+    "status": "达标（reb50 合规配置），但经济上不划算（-2.69pp 收益 vs +0.26pp 成本节约）"
   },
   "caveats": [
     "汇率按日收盘近似，未计换汇点差/手续费（约 0.1%-0.3%）与交易时点差",
-    "人民币计价版仅 2 个相位，S1 的四相位判定尚未完成",
     "样本期内 USD/CNY 由约 6.3 升至 6.67，汇率对美元资产有正贡献；人民币升值周期会反向",
     "非A股使用静态名单，存在幸存者偏差",
     "美股动量 alpha 极弱（IC_IR≈-0.006），主要用于低相关分散",
     "未计美股股息税（30%）、QDII 溢价/额度、跨境通道与合规",
     "定位：可估值的研究组合，仍不可直接实盘"
   ],
-  "conclusion": "本地货币口径：月胜率 58.1%/季 66.4%/年 87.2%；人民币口径（2相位）：月 63.8%/季 77.1%/年 92.3%，S8/S9 通过。换手仍 10.4x，未达 8x 目标。"
+  "conclusion": "人民币口径 4 相位：年化 16.56%±0.53，夏普 1.02，回撤 -22.62%，月胜率 63.3%±1.06，季 76.4%，12月 91.5%，S1/S8/S9 全过。"
 }
