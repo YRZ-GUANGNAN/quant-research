@@ -52,3 +52,31 @@ Longbridge 用 OAuth 2.0，**不需要** App Key/Secret。两种方式任选：
 - OAuth token 由 CLI 保存在 `~/.longbridge/openapi/tokens/`，**本项目的代码不读取、不打印、不提交**；
 - 本仓库 `.gitignore` 已排除 `.env`，也不会写入任何凭据；
 - 所有下单动作只会在你明确确认「接模拟盘」后执行。
+
+
+---
+
+## 更新（2026-10-23）：OAuth 走不通，改用 SDK 原生密钥
+
+实测：两次设备码 + 一次授权码，token 均 valid（dc_region=ap），但
+`assets/positions/order` 全部 `403308: Target API's scope is not in authorized scopes`，
+且 `auth status` 里 `account_no=None`。
+说明 CLI 默认 OAuth client 只申请了行情 scope，重新授权无法获得账户/交易权限。
+
+**改用 Python SDK（已安装 longbridge）需要的三件套**（在 Longbridge OpenAPI 控制台获取）：
+
+| 凭据 | 用途 | 来源 |
+|---|---|---|
+| `App Key` | 应用标识 | OpenAPI 控制台 → 应用管理 → 创建应用 |
+| `App Secret` | 应用密钥 | 同上 |
+| `Access Token` | 账户级访问令牌 | 同上（该应用的 Token 页） |
+
+拿到后我用：
+```python
+from longbridge.openapi import Config, TradeContext, QuoteContext
+config = Config(app_key=..., app_secret=..., access_token=...)
+trade = TradeContext(config)     # 资产/持仓/下单
+```
+凭据只放环境变量，不写入仓库。
+
+前置条件：该应用需勾选「账户/交易」权限，且账户已开通 OpenAPI 交易（模拟盘/实盘）。
