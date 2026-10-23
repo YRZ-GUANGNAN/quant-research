@@ -181,11 +181,18 @@ def main() -> int:
     plan = us_plan + hk_plan
     if args.skip_existing:
         try:
-            existing = {o.get("symbol") for o in cli_json(["order"]) or []}
+            existing: set[str] = set()
+            for o in cli_json(["order"]) or []:
+                if isinstance(o, dict) and o.get("symbol"):
+                    existing.add(o["symbol"])
+            for pos in cli_json(["positions"]) or []:
+                if isinstance(pos, dict) and pos.get("symbol"):
+                    existing.add(pos["symbol"])
+            before = len(plan)
             plan = [p for p in plan if p["symbol"] not in existing]
-            print(f"[plan] 跳过今日已下单标的，剩余 {len(plan)} 笔")
+            print(f"[plan] 幂等过滤：订单∪持仓 {len(existing)} 个标的，跳过 {before - len(plan)} 笔，剩余 {len(plan)} 笔")
         except Exception as exc:  # noqa: BLE001
-            print(f"[plan] 查已有订单失败，继续: {str(exc)[:100]}")
+            print(f"[plan] 查已有订单/持仓失败，继续: {str(exc)[:100]}")
     if args.limit:
         plan = plan[: args.limit]
 
