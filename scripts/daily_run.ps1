@@ -19,7 +19,10 @@ python scripts/paper_live.py
 Write-Host "=== 5/5 券商模拟盘：美港股自动下单（幂等）==="
 python scripts/lb_order_map.py --skip-existing --only both
 
-Write-Host "=== 6/6 生成券商日度对照报告 ==="
+Write-Host "=== 6/7 生成券商日度对照报告 ==="
 python scripts/lb_daily_report.py
+
+Write-Host "=== 7/7 运行后自检 ==="
+python scripts/post_daily_check.py
 
 Write-Host "=== 完成：查看 reports/ 与 logs/lb_order_map_result.json ==="
