@@ -72,6 +72,8 @@ def main() -> int:
                     help="择时触发时的仓位（0=清仓，0.5=半仓）")
     ap.add_argument("--vol-cap", type=float, default=None,
                     help="波动率上限分位（0.8=剔除波动率最高20%）")
+    ap.add_argument("--min-change", type=float, default=0.0,
+                    help="共识变化阈值：目标权重单边换手低于此值不交易")
     ap.add_argument("--vol-target", type=float, default=None, help="年化波动率目标，如 0.15")
     ap.add_argument("--slippage", type=float, default=5e-4)
     ap.add_argument("--start", default="2018-01-01")
@@ -130,6 +132,7 @@ def main() -> int:
                 warmup=warmup, buffer_ratio=args.buffer,
                 timing=args.timing, vol_target=args.vol_target,
                 min_exposure=args.min_exposure, vol_cap=args.vol_cap,
+                min_change=args.min_change,
             )
         elif args.ic_gate:
             from quant.strategies.overlay import ICMonitorOverlay

@@ -221,6 +221,28 @@ k40/reb35 的 S7 原本是 40.7% vs 阈值 40%，差 0.7pp。但 S7 的相位标
 
 一句话：**乘法改幅度，加法改形状**。
 
+### 人民币计价（v4 升级，2026-10-23）
+
+计入 `USD/CNY`、`HKD/CNY` 汇率后（A60/美30/港10，2 相位）：
+
+| 指标 | 本地货币口径 | 人民币口径 |
+|---|---|---|
+| 年化 | 15.32% ±0.53 | 16.81% ±0.41 |
+| 夏普 | 0.95 | 1.03 |
+| 最大回撤 | -23.50% | -22.13% |
+| 月胜率 | 58.1% | **63.8%** |
+| 季胜率 | 66.4% | 77.1% |
+| 12月胜率 | 87.2% | 92.3% |
+
+提升主要来自样本期内美元升值（USD/CNY 6.3→6.67），**不是策略 alpha**；
+人民币升值周期会反向。且人民币口径只跑了 2 个相位，4 相位复核待补（见决策 0010）。
+
+### 换手目标 ≤8x：未达标（诚实披露）
+
+共识变化阈值 `min_change` 实测效果有限：10.36x → 10.08x（阈值 0.10）→ 9.30x（阈值 0.20，代价 -0.6pp 年化）。
+诊断：撮合层本就有无交易带，换手主要来自**每 35 天的成分股更替**，不是日度漂移。
+下一轮改用「延长调仓周期 / 加大持仓缓冲 / 提高持仓数」。
+
 ## 架构
 
 ```
@@ -310,12 +332,14 @@ python scripts/predict.py --export
 | [决策 0007](docs/decisions/0007-stability-criteria.md) | 把「稳定」定义成 7 条可证伪标准 | ✅ |
 | [决策 0008](docs/decisions/0008-revise-s7-calibrated-to-benchmark.md) | S7 修订：单年集中度必须相对基准校准 | ✅ |
 | [决策 0009](docs/decisions/0009-cross-market-portfolio-v4.md) | 跨市场收益源组合（模型 v4）：月胜率 48.6%→58.1% | ✅ |
+| [决策 0010](docs/decisions/0010-fx-adjusted-portfolio.md) | 汇率口径：v4 升级为人民币可估值组合 | ✅ |
 | [日志 0001](docs/journal/0001-data-and-multi-market.md) | 数据源踩坑与多市场 | — |
 | [日志 0002](docs/journal/0002-phase-robustness-and-stop.md) | 相位稳健性、零交易 bug、样本外偷看 | — |
 | [日志 0003](docs/journal/0003-innovations-ensemble-vs-icgate.md) | 创新 A 成功的细节、创新 B 失败的归因 | — |
 | [日志 0004](docs/journal/0004-optimize-until-stable.md) | 优化到稳定：择时失败、分散化胜出、S7 修订 | — |
 | [日志 0005](docs/journal/0005-monthly-winrate-structural.md) | 月胜率 49% 的结构性原因：仓位缩放不改变符号 | — |
 | [日志 0006](docs/journal/0006-cross-market-sleeves.md) | 换收益源：跨市场袖子把月胜率抬到 58.1% | — |
+| [日志 0007](docs/journal/0007-fx-and-turnover.md) | 汇率口径（月胜率 63.8%）与换手阈值失败诊断 | — |
 | [调研报告](docs/research/ecosystem.md) | 开源量化生态（2026-10 实抓数据） | — |
 
 ## 下一轮（未做，明确留白）

@@ -55,12 +55,16 @@ class PhaseEnsembleStrategy:
     vol_target: float | None = None
     min_exposure: float = 0.0
     vol_cap: float | None = None
+    # 共识变化阈值：新旧目标权重的单边换手率低于该值就不下发新目标（不交易）。
+    # 0 = 每次校准都执行；0.08 约等于「目标权重有 8% 以上变化才动手」。
+    min_change: float = 0.0
     # 主组合执行节奏：True = 每个交易日都用共识权重校准（相位无关），
     # 靠撮合层的无交易带（偏离 15%/20% 才动手）抑制换手。
     master_daily: bool = True
 
     _members: list = field(init=False, repr=False, default_factory=list)
     _current: list[dict[str, float]] = field(init=False, repr=False, default_factory=list)
+    _last_target: dict[str, float] = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         self._members = [
@@ -113,6 +117,16 @@ class PhaseEnsembleStrategy:
         dates = self.panel.dates
         reb = self.cfg.rebalance_days
 
+        def _maybe_emit(cons: dict[str, float]) -> dict[str, float] | None:
+            """变化不足阈值就不交易，避免为小幅漂移付成本。"""
+            if self._last_target and self.min_change > 0:
+                keys = set(cons) | set(self._last_target)
+                diff = sum(abs(cons.get(c, 0.0) - self._last_target.get(c, 0.0)) for c in keys) / 2.0
+                if diff < self.min_change:
+                    return None
+            self._last_target = dict(cons)
+            return cons
+
         def func(i: int) -> dict[str, float] | None:
             if i < self.warmup:
                 return None
@@ -121,10 +135,10 @@ class PhaseEnsembleStrategy:
                 return None
             if self.master_daily:
                 # 每日校准：相位不再决定执行日，只有子策略的调仓日影响共识
-                return self.consensus(dates[i])
+                return _maybe_emit(self.consensus(dates[i]))
             if (i - self.master_warmup) % reb != 0:
                 return None
-            return self.consensus(dates[i])
+            return _maybe_emit(self.consensus(dates[i]))
 
         return func
 

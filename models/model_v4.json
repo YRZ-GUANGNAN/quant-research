@@ -1,7 +1,9 @@
 {
   "name": "multi_market_v4",
-  "strategy": "跨市场收益源组合（A股相位共识 + 美股动量 + 港股动量）",
+  "strategy": "跨市场收益源组合（A股相位共识 + 美股动量 + 港股动量），人民币计价",
   "created_at": "2026-10-23T00:30:00+00:00",
+  "updated_at": "2026-10-23T10:45:00+08:00",
+  "base_currency": "CNY",
   "sleeves": {
     "cn_v3": {
       "market": "cn",
@@ -23,17 +25,20 @@
       "strategy": "mom_60 TopK",
       "top_k": 20,
       "rebalance_days": 20,
-      "weight_in_portfolio": 0.3
+      "weight_in_portfolio": 0.3,
+      "fx": "USD/CNY (Yahoo CNY=X)"
     },
     "hk_momentum": {
       "market": "hk",
       "strategy": "mom_60 TopK",
       "top_k": 15,
       "rebalance_days": 20,
-      "weight_in_portfolio": 0.1
+      "weight_in_portfolio": 0.1,
+      "fx": "HKD/CNY (Yahoo HKDCNY=X)"
     }
   },
-  "metrics_multiphase_4": {
+  "metrics_local_currency": {
+    "phases": 4,
     "annual_return": 0.1532,
     "annual_return_std": 0.0053,
     "sharpe": 0.95,
@@ -42,12 +47,32 @@
     "quarter_positive": 0.664,
     "r12_positive": 0.872
   },
+  "metrics_cny_adjusted": {
+    "phases": 2,
+    "phase_note": "仅跑 0/5 两个相位，4 相位复核待补（不得当作已完成的 S1 判定）",
+    "annual_return": 0.1681,
+    "annual_return_std": 0.0041,
+    "sharpe": 1.03,
+    "max_drawdown": -0.2213,
+    "month_positive": 0.638,
+    "quarter_positive": 0.771,
+    "r12_positive": 0.923
+  },
+  "turnover_control": {
+    "baseline_turnover": 10.36,
+    "min_change_0.10": 10.08,
+    "min_change_0.20": 9.30,
+    "target": 8.0,
+    "status": "未达标，需延长调仓周期/加大缓冲"
+  },
   "caveats": [
-    "未计入汇率（A股人民币/美股美元/港股港币）",
-    "不同交易日历：按并集对齐，非交易日收益记 0",
+    "汇率按日收盘近似，未计换汇点差/手续费（约 0.1%-0.3%）与交易时点差",
+    "人民币计价版仅 2 个相位，S1 的四相位判定尚未完成",
+    "样本期内 USD/CNY 由约 6.3 升至 6.67，汇率对美元资产有正贡献；人民币升值周期会反向",
     "非A股使用静态名单，存在幸存者偏差",
-    "美股动量 alpha 极弱（IC_IR≈-0.006），主要用于低相关分散，不是收益来源",
-    "定位为研究结论，不可直接实盘"
+    "美股动量 alpha 极弱（IC_IR≈-0.006），主要用于低相关分散",
+    "未计美股股息税（30%）、QDII 溢价/额度、跨境通道与合规",
+    "定位：可估值的研究组合，仍不可直接实盘"
   ],
-  "conclusion": "在多相位复核下同时满足稳定（S1-S7）与大部分情况盈利（月58.1%/季66.4%/年87.2%）。"
+  "conclusion": "本地货币口径：月胜率 58.1%/季 66.4%/年 87.2%；人民币口径（2相位）：月 63.8%/季 77.1%/年 92.3%，S8/S9 通过。换手仍 10.4x，未达 8x 目标。"
 }
