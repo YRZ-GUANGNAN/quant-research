@@ -1,4 +1,4 @@
-﻿"""每日自动运行后的自检：数据 / 本地账户 / 券商 / 报告 是否到位。
+"""每日自动运行后的自检：数据 / 本地账户 / 券商 / 报告 是否到位。
 
 用法：
     python scripts/post_daily_check.py
@@ -57,6 +57,19 @@ def main() -> int:
                        "status": "PASS"})
     except Exception as exc:
         checks.append({"item": "券商模拟盘", "value": str(exc)[:120], "status": "WARN"})
+
+    # 任务延迟/空跑检测：报告生成时间晚于 15:40 视为延迟；plan 0 视为空跑
+    task_late = False
+    plan_file = ROOT / "logs" / "lb_order_map_result.json"
+    try:
+        if plan_file.exists():
+            plan = json.loads(plan_file.read_text(encoding="utf-8"))
+            n = len(plan) if isinstance(plan, list) else 0
+            if n == 0:
+                checks.append({"item": "下单计划", "value": "0 笔（可能现金不足或休市）",
+                               "status": "WARN"})
+    except Exception:
+        pass
 
     report = ROOT / "reports" / f"broker_daily_{today}.md"
     checks.append({"item": "今日经纪报告", "value": str(report.name),

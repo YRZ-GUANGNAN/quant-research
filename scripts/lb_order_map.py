@@ -275,6 +275,8 @@ def main() -> int:
     if args.limit:
         plan = plan[: args.limit]
 
+    if not plan:
+        print("[no-order-reason] 计划为 0，检查：①现金/购买力 ②市场是否休市 ③是否已持有全部目标")
     print(f"[plan] 订单 {len(plan)} 笔（美股 {len(us_plan)} / 港股 {len(hk_plan)} / SG {len(sg_plan)}），"
           f"{'dry-run' if args.dry_run else '真实提交'}")
     results = submit(plan, args.dry_run)
