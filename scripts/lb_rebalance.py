@@ -46,7 +46,7 @@ def main() -> int:
 
     sess = market_sessions()
     mkt = "US" if args.market == "us" else "HK"
-    if sess.get(mkt) not in (None, "Trading"):
+    if sess.get(mkt) != "Trading":
         print(f"[skip] {mkt} 当前 {sess.get(mkt)}，跳过再平衡（避免休市拒单）")
         return 0
     total = net_assets_usd()
@@ -59,7 +59,7 @@ def main() -> int:
     pending_symbols: set[str] = set()
     try:
         for o in cli_json(["order"]) or []:
-            if isinstance(o, dict) and o.get("status") in ("New", "NotReported", "Submitted", "PartFilled"):
+            if isinstance(o, dict) and o.get("status") in ("New", "NotReported", "Submitted", "PartFilled", "PartialFilled", "WaitingSubmit", "Filling"):
                 pending_symbols.add(o.get("symbol"))
     except Exception:
         pass
@@ -83,7 +83,7 @@ def main() -> int:
     plan = []
     # 目标外持仓：全部卖出（防止旧仓位残留）
     for sym, qty in pos.items():
-        if sym.endswith(suffix) and sym not in weights and qty > 0:
+        if sym.endswith(suffix) and sym not in weights and qty > 0 and sym not in pending_symbols:
             info = q.get(sym) or (quotes([sym]) or {}).get(sym)
             if info and info.get("last"):
                 last = float(info["last"])
@@ -101,7 +101,7 @@ def main() -> int:
         target = budget * w
         cur = pos.get(sym, 0) * price
         if cur > target * (1 + args.threshold) and pos.get(sym, 0) > 0:
-            sell_qty = int((cur - target) / price)
+            sell_qty = round_qty(sym, (cur - target) / price)
             if sell_qty > 0:
                 plan.append({"symbol": sym, "side": "sell", "qty": sell_qty, "price": price})
         elif cur < target * (1 - args.threshold):

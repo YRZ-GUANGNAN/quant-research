@@ -83,7 +83,16 @@ def main() -> int:
         print("[paper] 新建模拟账户，初始资金 %.0f 元" % args.cash)
 
     if hasattr(strategy, "replay"):
-        strategy.replay(len(panel.dates) - 1)
+        # 只重放到账户已处理日期：补跑多日时不能提前持有后续日期的相位状态（避免未来信息）
+        import pandas as _pd
+        _dates = panel.dates
+        try:
+            _last = _pd.Timestamp(str(state.last_date))
+            _idx = int(_dates.searchsorted(_last, side="right")) - 1
+        except Exception:
+            _idx = 0
+        _idx = max(0, min(_idx, len(_dates) - 1))
+        strategy.replay(_idx)
         print("[paper] 相位状态已重放到最新日期（重启后共识与回测一致）")
     trader = PaperTrader(panel=panel, cfg=cfg, strategy=strategy, state=state, warmup=130)
     records = trader.run()

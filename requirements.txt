@@ -1,4 +1,4 @@
-﻿numpy==2.4.6
+numpy==2.4.6
 pandas==3.1.0
 scipy==1.18.1
 lightgbm==4.7.0
@@ -6,3 +6,4 @@ requests==2.34.2
 python-docx==1.2.0
 longbridge==5.2.2
 pytest==9.1.1
+baostock==0.8.9

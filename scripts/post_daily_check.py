@@ -53,8 +53,10 @@ def main() -> int:
         for o in orders:
             statuses[o.get("status", "?")] = statuses.get(o.get("status", "?"), 0) + 1
         pos = cli_json(["positions"]) or []
+        _rej = statuses.get("Rejected", 0)
         checks.append({"item": "券商模拟盘", "value": f"orders={statuses} positions={len(pos)}",
-                       "status": "PASS"})
+                       "status": "WARN" if _rej else "PASS",
+                       "note": f"{_rej} 笔拒单" if _rej else ""})
     except Exception as exc:
         checks.append({"item": "券商模拟盘", "value": str(exc)[:120], "status": "WARN"})
 
@@ -102,8 +104,9 @@ def main() -> int:
     out = ROOT / "reports" / f"post_check_{today}.json"
     out.write_text(json.dumps({"date": str(today), "checks": checks, "warns": warns},
                               ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"  WARN {warns} 项 -> {out}")
-    return 0
+    fails = sum(1 for c in checks if c["status"] == "FAIL")
+    print(f"  WARN {warns} 项 / FAIL {fails} 项 -> {out}")
+    return 1 if fails else 0
 
 
 if __name__ == "__main__":

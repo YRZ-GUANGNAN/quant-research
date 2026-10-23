@@ -19,7 +19,11 @@
       "top_k": 40,
       "rebalance_days": 35,
       "weight_in_portfolio": 0.6,
-      "low_turnover_variant": {"rebalance_days": 50, "turnover": 7.75, "annual_return": 0.1289}
+      "low_turnover_variant": {
+        "rebalance_days": 50,
+        "turnover": 7.75,
+        "annual_return": 0.1289
+      }
     },
     "us_momentum": {
       "market": "us",
@@ -84,5 +88,6 @@
     "未计美股股息税（30%）、QDII 溢价/额度、跨境通道与合规",
     "定位：可估值的研究组合，仍不可直接实盘"
   ],
-  "conclusion": "人民币口径 4 相位：年化 16.56%±0.53，夏普 1.02，回撤 -22.62%，月胜率 63.3%±1.06，季 76.4%，12月 91.5%，S1/S8/S9 全过。"
+  "conclusion": "人民币口径 4 相位：年化 16.56%±0.53，夏普 1.02，回撤 -22.62%，月胜率 63.3%±1.06，季 76.4%，12月 91.5%，S1/S8/S9 全过。",
+  "deprecated_results_note": "2026-10-24：此前记录的人民币口径 16.56%/Sharpe1.02/月胜率63.3% 因汇率 ffill bug 作废；修正后 A60/美30/港10 = 15.64%±0.54、Sharpe 0.97、回撤 -22.65%、月胜率 62.1%（4 相位）。"
 }

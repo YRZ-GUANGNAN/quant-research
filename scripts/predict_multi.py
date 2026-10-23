@@ -49,17 +49,8 @@ def sleeve_targets(sleeve: dict) -> dict[str, float]:
     last = panel.dates[-1]
     if sleeve["ensemble"]:
         strat = PhaseEnsembleStrategy(panel=panel, cfg=cfg, name=sleeve["preset"], warmup=130)
-        # 一次性共识：各相位在最新日期各自选股，再按权重加总取前 top_k
-        total: dict[str, float] = {}
-        for member in strat._members:  # noqa: SLF001 - 单日预测不需要完整回放
-            for code, w in member.target_weights(last).items():
-                total[code] = total.get(code, 0.0) + w
-        ranked = sorted(total.items(), key=lambda kv: -kv[1])[: cfg.top_k]
-        s = sum(v for _, v in ranked)
-        if s <= 0:
-            return {}
-        gross = 1.0 - cfg.cash_buffer
-        return {code: v / s * gross for code, v in ranked}
+        strat.replay(len(panel.dates) - 1)  # 真实相位重放（修复假共识）
+        return strat.target_weights(last)
 
     strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS[sleeve["preset"]])
     return strat.target_weights(last)
