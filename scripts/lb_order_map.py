@@ -93,6 +93,18 @@ def lot_sizes(symbols: list[str]) -> dict[str, int]:
     return out
 
 
+def market_sessions() -> dict[str, str]:
+    """返回各市场交易状态：Trading / Closed / Pre-Market 等。"""
+    out: dict[str, str] = {}
+    try:
+        for row in cli_json(["market-status"]) or []:
+            if isinstance(row, dict) and row.get("market"):
+                out[str(row["market"]).upper()] = str(row.get("status", "?"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[session] 查询失败，按全时段处理: {str(exc)[:80]}")
+    return out
+
+
 def cash_by_ccy() -> dict[str, float]:
     """按币种读取可用现金，用于下单前购买力预检。"""
     out: dict[str, float] = {}
@@ -208,6 +220,19 @@ def main() -> int:
     hk_w = sleeve_targets("hk", 15, ".HK")
     print(f"[model] 美股 {len(us_w)} 只 / 港股 {len(hk_w)} 只")
 
+    sessions = market_sessions()
+    print(f"[session] {sessions}")
+    if args.only in ("us", "both") and sessions.get("US") not in (None, "Trading"):
+        print(f"[skip] 美股当前 {sessions.get('US')}，跳过美股下单（避免休市拒单）")
+        us_ok = False
+    else:
+        us_ok = True
+    if args.only in ("hk", "both") and sessions.get("HK") not in (None, "Trading"):
+        print(f"[skip] 港股当前 {sessions.get('HK')}，跳过港股下单")
+        hk_ok = False
+    else:
+        hk_ok = True
+
     cash = cash_by_ccy()
     us_budget = min(total * args.us_weight, cash.get("USD", 0.0) * 0.98)
     hk_budget_hkd = min(total * (1 - args.us_weight) * USD_HKD, cash.get("HKD", 0.0) * 0.98)
@@ -215,8 +240,8 @@ def main() -> int:
     if cash.get("HKD", 0.0) <= 0:
         print("[skip] HKD 可用现金为负，港股袖子本轮跳过（需在 App 换汇，或卖出港股回笼 HKD）")
     print(f"[budget] 美股 {us_budget:,.2f} USD（预检后）；港股 {hk_budget_hkd:,.2f} HKD（预检后）")
-    us_plan = build_plan(us_w, us_budget) if args.only in ("us", "both") else []
-    hk_plan = build_plan(hk_w, hk_budget_hkd) if args.only in ("hk", "both") else []
+    us_plan = build_plan(us_w, us_budget) if (args.only in ("us", "both") and us_ok) else []
+    hk_plan = build_plan(hk_w, hk_budget_hkd) if (args.only in ("hk", "both") and hk_ok) else []
     plan = us_plan + hk_plan
     if args.skip_existing:
         try:

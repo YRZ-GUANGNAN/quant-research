@@ -1,7 +1,7 @@
 {
   "summary": {
     "date": "2026-10-23",
-    "generated_at": "2026-10-23T03:34:59+00:00",
+    "generated_at": "2026-10-23T03:36:37+00:00",
     "orders": 64,
     "symbols": 36,
     "submitted_qty": 755571.0,
@@ -13,6 +13,9 @@
       "Filled": 17,
       "NotReported": 11,
       "Canceled": 9
+    },
+    "reject_reasons": {
+      "Insufficient Credit Limit, Please submit a credit limit increase request via Por": 27
     }
   },
   "rows": [

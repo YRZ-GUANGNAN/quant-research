@@ -4,6 +4,7 @@
 - 下单量 755571，成交量 393300，**成交率 52.0%**
 - 加权滑点（成交价 vs 限价）：-0.592%
 - 状态分布：{'Rejected': 27, 'Filled': 17, 'NotReported': 11, 'Canceled': 9}
+- 拒单原因：{'Insufficient Credit Limit, Please submit a credit limit increase request via Por': 27}
 
 | 标的 | 订单 | 下单量 | 成交量 | 成交率 | 成交均价 | 限价均价 | 滑点 |
 |---|---|---|---|---|---|---|---|

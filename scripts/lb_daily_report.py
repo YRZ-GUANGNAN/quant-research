@@ -102,6 +102,28 @@ def main() -> int:
         r["symbol"] = norm(r["symbol"])
     rows.sort(key=lambda r: -r["submitted_qty"])
 
+    # 拒单原因：对 Rejected 订单逐笔查 detail 的 remark
+    reasons: dict[str, int] = defaultdict(int)
+    seen_ids: set[str] = set()
+    for o in orders:
+        if o.get("status") != "Rejected":
+            continue
+        oid = str(o.get("order_id"))
+        if oid in seen_ids:
+            continue
+        seen_ids.add(oid)
+        try:
+            d = cli_json(["order", "detail", oid])
+            remark = ""
+            if isinstance(d, dict):
+                remark = str(d.get("remark") or "")
+                if not remark and d.get("history"):
+                    remark = str(d["history"][-1].get("msg") or "")
+            key = remark.split(".")[0][:80] if remark else "unknown"
+            reasons[key] += 1
+        except Exception:  # noqa: BLE001
+            reasons["detail-unavailable"] += 1
+
     total_sub = sum(r["submitted_qty"] for r in rows)
     total_fill = sum(r["filled_qty"] for r in rows)
     weighted_slip = None
@@ -127,6 +149,7 @@ def main() -> int:
         "fill_rate": round(total_fill / total_sub, 4) if total_sub else 0.0,
         "weighted_slippage_vs_limit": round(weighted_slip, 6) if weighted_slip is not None else None,
         "statuses": dict(statuses),
+        "reject_reasons": dict(reasons),
     }
 
     reports = ROOT / "reports"
@@ -141,7 +164,8 @@ def main() -> int:
         f"- 下单量 {total_sub:.0f}，成交量 {total_fill:.0f}，**成交率 {summary['fill_rate']:.1%}**",
         f"- 加权滑点（成交价 vs 限价）："
         f"{'—' if weighted_slip is None else f'{weighted_slip * 100:+.3f}%'}",
-        f"- 状态分布：{dict(statuses)}", "",
+        f"- 状态分布：{dict(statuses)}",
+        f"- 拒单原因：{dict(reasons)}", "",
         "| 标的 | 订单 | 下单量 | 成交量 | 成交率 | 成交均价 | 限价均价 | 滑点 |",
         "|---|---|---|---|---|---|---|---|",
     ]
