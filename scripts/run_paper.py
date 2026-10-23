@@ -48,6 +48,8 @@ def main() -> int:
     ap.add_argument("--ensemble", action="store_true", default=True,
                     help="使用相位不变组合（模型 v3 默认）")
     ap.add_argument("--no-ensemble", dest="ensemble", action="store_false")
+    ap.add_argument("--exposure", type=float, default=0.70,
+                    help="静态仓位系数（0.70=70%% 股票+30%% 现金，回撤目标 -20%%）")
     args = ap.parse_args()
 
     ensure_dirs()
@@ -64,9 +66,11 @@ def main() -> int:
         from quant.strategies.ensemble import PhaseEnsembleStrategy
 
         strategy = PhaseEnsembleStrategy(
-            panel=panel, cfg=cfg, name=args.strategy, warmup=130
+            panel=panel, cfg=cfg, name=args.strategy, warmup=130,
+            exposure_scale=args.exposure,
         )
-        print(f"[paper] 模型：相位不变组合（{len(strategy.offsets)} 相位共识）")
+        print(f"[paper] 模型：相位不变组合（{len(strategy.offsets)} 相位共识），"
+              f"仓位系数 {args.exposure:.2f}")
     else:
         strategy = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS[args.strategy])
 
