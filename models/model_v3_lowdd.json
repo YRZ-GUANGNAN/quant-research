@@ -18,5 +18,23 @@
     "validation_oos_annual": 0.0642
   },
   "purpose": "满足 -20% 最大回撤约束；代价为年化 -3.84pp。暴露层缩放，不改选股。",
-  "caveat": "2 相位实测；4 相位复核待补。仅为模拟盘配置，不是可实盘承诺。"
+  "caveat": "4 相位复核已完成（S1-S7 全过）；回撤 -19.98% 刚好在 -20% 目标线内，属边界达成。",
+  "metrics_4phases": {
+    "annual_return": 0.1161,
+    "annual_return_std": 0.0033,
+    "max_drawdown": -0.1998,
+    "turnover": 7.2,
+    "validation_oos_annual": 0.0493,
+    "validation": {
+      "annual": 0.0808,
+      "excess": 0.0745,
+      "mdd": -0.1998
+    },
+    "oos": {
+      "annual": 0.0178,
+      "excess": -0.0146,
+      "mdd": -0.1364
+    },
+    "S1_S7_all_pass": true
+  }
 }
