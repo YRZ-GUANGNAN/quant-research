@@ -17,7 +17,7 @@ Write-Host "=== 4/5 盘中：用实时报价执行本地挂单 ==="
 python scripts/paper_live.py
 
 Write-Host "=== 5/5 券商模拟盘：美港股自动下单（幂等）==="
-python scripts/lb_order_map.py --skip-existing --only both
+python scripts/lb_order_map.py --skip-existing --only both --execute
 python scripts/lb_rebalance.py --market hk --execute
 
 Write-Host "=== 6/7 生成券商日度对照报告 ==="

@@ -180,7 +180,7 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
             attempts = [
                 ["--price", f"{item['price']:.3f}"],
                 ["--price", f"{item.get('last', item['price']):.3f}"],
-                ["--order-type", "MO"],
+                ["--price", f"{item.get('last', item['price']) * 1.005:.3f}"],
             ]
             last_error: Exception | None = None
             for extra in attempts:
@@ -207,12 +207,14 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="模型 v4 美港股 → 券商模拟盘下单")
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--execute", action="store_true", help="真正提交（默认 dry-run，安全优先）")
+    ap.add_argument("--dry-run", action="store_true", help="兼容旧参数")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--us-weight", type=float, default=0.75)
     ap.add_argument("--only", choices=["us", "hk", "sg", "both"], default="both")
     ap.add_argument("--skip-existing", action="store_true", help="跳过今日已有订单的标的")
     args = ap.parse_args()
+    args.dry_run = not args.execute  # 默认 dry-run：必须显式 --execute 才会提交
 
     total = net_assets_usd()
     print(f"[broker] 模拟盘净资产 USD {total:,.2f}")

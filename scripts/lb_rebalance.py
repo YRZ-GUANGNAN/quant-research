@@ -66,7 +66,31 @@ def main() -> int:
     cash = cash_of("USD" if args.market == "us" else "HKD")
     print(f"[rebalance] {args.market} 预算 {budget:,.0f}，可用现金 {cash:,.0f}，持仓 {len(pos)} 只")
 
+    HK_TICKS = [(0.25, 0.001), (0.5, 0.005), (10, 0.01), (20, 0.02), (100, 0.05),
+                (200, 0.1), (500, 0.2), (1000, 0.5), (2000, 1), (5000, 2), (float("inf"), 5)]
+
+    def hk_tick(price: float) -> float:
+        for upper, tick in HK_TICKS:
+            if price < upper:
+                return tick
+        return 5.0
+
+    def round_qty(sym: str, qty: float) -> int:
+        if sym.endswith(".HK"):
+            return int(qty // 100 * 100)
+        return int(qty)
+
     plan = []
+    # 目标外持仓：全部卖出（防止旧仓位残留）
+    for sym, qty in pos.items():
+        if sym.endswith(suffix) and sym not in weights and qty > 0:
+            info = q.get(sym) or (quotes([sym]) or {}).get(sym)
+            if info and info.get("last"):
+                last = float(info["last"])
+                price = round(last - hk_tick(last), 3) if sym.endswith(".HK") else round(last, 2)
+                plan.append({"symbol": sym, "side": "sell", "qty": int(qty), "price": price,
+                             "orphan": True})
+
     for sym, w in weights.items():
         if sym in pending_symbols:
             continue
@@ -81,9 +105,10 @@ def main() -> int:
             if sell_qty > 0:
                 plan.append({"symbol": sym, "side": "sell", "qty": sell_qty, "price": price})
         elif cur < target * (1 - args.threshold):
-            buy_qty = int((target - cur) / price)
+            buy_qty = round_qty(sym, (target - cur) / price)
             if buy_qty > 0:
-                plan.append({"symbol": sym, "side": "buy", "qty": buy_qty, "price": price})
+                bprice = round(price + hk_tick(price), 3) if sym.endswith(".HK") else round(price, 2)
+                plan.append({"symbol": sym, "side": "buy", "qty": buy_qty, "price": bprice})
 
     # 卖出优先（释放现金），买入受现金约束
     sells = [p for p in plan if p["side"] == "sell"]
