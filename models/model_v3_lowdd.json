@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "ic_tilt_ensemble_v3_lowdd",
   "strategy": "ic_tilt 4 相位共识 + top_k40 + 35日调仓 + 静态仓位 0.70",
   "created_at": "2026-10-23T12:00:00+08:00",
