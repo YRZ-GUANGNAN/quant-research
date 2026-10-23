@@ -34,7 +34,7 @@ INDEX_NAMES: dict[str, str] = {
     "crypto": "加密货币",
 }
 
-MARKETS = ("cn", "us", "hk", "crypto")
+MARKETS = ("cn", "us", "hk", "sg", "crypto")
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,13 @@ MARKET_RULES: dict[str, MarketRules] = {
               transfer_fee=0.0, slippage=1e-3),
         "equity",
     ),
+    # 新加坡：T+2 结算但无 T+1 卖出限制、100 股整手、无涨跌停、佣金约 0.1%
+    "sg": MarketRules(
+        "sg", False, 100, 0.0,
+        Costs(commission_rate=1e-3, commission_min=0.0, stamp_duty_sell=0.0,
+              transfer_fee=0.0, slippage=1e-3),
+        "equity",
+    ),
     # 加密货币：7×24、T+0、最小 1 单位、无涨跌停、手续费约 0.1%/边
     "crypto": MarketRules(
         "crypto", False, 1, 0.0,
@@ -134,12 +141,12 @@ class BacktestConfig:
         rules = MARKET_RULES[market]
         base = cls(
             market=market,
-            index_code={"cn": "000300", "us": "SPY", "hk": "HSI", "crypto": "BTC"}[market],
+            index_code={"cn": "000300", "us": "SPY", "hk": "HSI", "sg": "STI", "crypto": "BTC"}[market],
             costs=rules.costs,
             lot_size=rules.lot_size,
             t_plus_one=rules.t_plus_one,
             limit_pct=rules.limit_pct,
-            min_amount={"cn": 5e7, "us": 5e7, "hk": 5e7, "crypto": 0.0}[market],
+            min_amount={"cn": 5e7, "us": 5e7, "hk": 5e7, "sg": 1e6, "crypto": 0.0}[market],
         )
         return replace(base, **overrides)
 

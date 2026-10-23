@@ -59,7 +59,7 @@ def fetch_one_market(market: str, range_: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="抓取多市场行情")
-    ap.add_argument("--market", default="all", choices=["us", "hk", "crypto", "all"])
+    ap.add_argument("--market", default="all", choices=["us", "hk", "sg", "crypto", "all"])
     ap.add_argument("--range", default="10y", help="Yahoo 区间，如 5y / 10y / max")
     args = ap.parse_args()
 

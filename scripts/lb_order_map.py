@@ -207,7 +207,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--us-weight", type=float, default=0.75)
-    ap.add_argument("--only", choices=["us", "hk", "both"], default="both")
+    ap.add_argument("--only", choices=["us", "hk", "sg", "both"], default="both")
     ap.add_argument("--skip-existing", action="store_true", help="跳过今日已有订单的标的")
     args = ap.parse_args()
 
@@ -227,6 +227,11 @@ def main() -> int:
         us_ok = False
     else:
         us_ok = True
+    if args.only in ("sg", "both") and sessions.get("SG") not in (None, "Trading"):
+        print(f"[skip] 新加坡当前 {sessions.get('SG')}，跳过 SG 下单")
+        sg_ok = False
+    else:
+        sg_ok = True
     if args.only in ("hk", "both") and sessions.get("HK") not in (None, "Trading"):
         print(f"[skip] 港股当前 {sessions.get('HK')}，跳过港股下单")
         hk_ok = False
@@ -240,9 +245,18 @@ def main() -> int:
     if cash.get("HKD", 0.0) <= 0:
         print("[skip] HKD 可用现金为负，港股袖子本轮跳过（需在 App 换汇，或卖出港股回笼 HKD）")
     print(f"[budget] 美股 {us_budget:,.2f} USD（预检后）；港股 {hk_budget_hkd:,.2f} HKD（预检后）")
+    # Yahoo 代码是 D05.SI，券商要 D05.SG：先取原始代码，再做后缀映射
+    sg_raw = sleeve_targets("sg", 10, "")
+    sg_w = {(c[:-3] + ".SG") if c.endswith(".SI") else (c if c.endswith(".SG") else f"{c}.SG"): w
+            for c, w in sg_raw.items()}
+    sg_budget = max(0.0, cash.get("SGD", 0.0) * 0.98)
+    print(f"[budget] 新加坡 {sg_budget:,.2f} SGD（预检后）")
     us_plan = build_plan(us_w, us_budget) if (args.only in ("us", "both") and us_ok) else []
     hk_plan = build_plan(hk_w, hk_budget_hkd) if (args.only in ("hk", "both") and hk_ok) else []
-    plan = us_plan + hk_plan
+    sg_plan = build_plan(sg_w, sg_budget) if (args.only in ("sg", "both") and sg_ok) else []
+    if sg_ok and not sg_plan:
+        print("[skip] SG 标的在券商侧无报价（未覆盖），SG 袖子仅研究、不下单")
+    plan = us_plan + hk_plan + sg_plan
     if args.skip_existing:
         try:
             existing: set[str] = set()
@@ -260,7 +274,7 @@ def main() -> int:
     if args.limit:
         plan = plan[: args.limit]
 
-    print(f"[plan] 订单 {len(plan)} 笔（美股 {len(us_plan)} / 港股 {len(hk_plan)}），"
+    print(f"[plan] 订单 {len(plan)} 笔（美股 {len(us_plan)} / 港股 {len(hk_plan)} / SG {len(sg_plan)}），"
           f"{'dry-run' if args.dry_run else '真实提交'}")
     results = submit(plan, args.dry_run)
     for r in results:

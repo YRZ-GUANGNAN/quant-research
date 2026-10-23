@@ -42,7 +42,15 @@ CRYPTO_UNIVERSE: list[str] = [
     "ATOM-USD", "ETC-USD", "FIL-USD", "APT-USD", "ARB-USD", "OP-USD",
 ]
 
+# 新加坡：SGX 蓝筹（Yahoo .SI 代码）
+SG_UNIVERSE: list[str] = [
+    "D05.SI", "O39.SI", "U11.SI", "Z74.SI", "C6L.SI", "C09.SI",
+    "A17U.SI", "BS6.SI", "F34.SI", "G13.SI", "S68.SI", "U14.SI",
+    "V03.SI", "H78.SI", "Z25.SI", "SK6U.SI",
+]
+
 UNIVERSES: dict[str, list[str]] = {
+    "sg": SG_UNIVERSE,
     "us": US_UNIVERSE,
     "hk": HK_UNIVERSE,
     "crypto": CRYPTO_UNIVERSE,

@@ -35,6 +35,7 @@ CHART_URL = (
 BENCHMARKS: dict[str, str] = {
     "us": "SPY",
     "hk": "^HSI",
+    "sg": "^STI",
     "crypto": "BTC-USD",
 }
 
