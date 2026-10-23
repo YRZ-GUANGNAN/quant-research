@@ -3,88 +3,90 @@
     "symbol": "2269.HK",
     "side": "buy",
     "quantity": 5500,
-    "price": 44.95,
+    "price": 44.53,
+    "last": 44.48,
     "lot": 500,
-    "status": "error: Error: API error (code 602035): Wrong bid size, please change the price\n  trace_id: f3ce51"
+    "status": "submitted",
+    "order_id": "1298127143506550784"
   },
   {
     "symbol": "0939.HK",
     "side": "buy",
-    "quantity": 25000,
-    "price": 9.94,
+    "quantity": 26000,
+    "price": 9.87,
+    "last": 9.86,
     "lot": 1000,
     "status": "submitted",
-    "order_id": "1298125747029815296"
+    "order_id": "1298127149714120704"
   },
   {
     "symbol": "0386.HK",
     "side": "buy",
     "quantity": 56000,
-    "price": 4.5600000000000005,
+    "price": 4.53,
+    "last": 4.52,
     "lot": 2000,
     "status": "submitted",
-    "order_id": "1298125752692125696"
+    "order_id": "1298127155443544064"
   },
   {
     "symbol": "0883.HK",
     "side": "buy",
     "quantity": 11000,
-    "price": 23.35,
+    "price": 23.19,
+    "last": 23.14,
     "lot": 1000,
-    "status": "error: Error: API error (code 602035): Wrong bid size, please change the price\n  trace_id: 168aab"
-  },
-  {
-    "symbol": "3968.HK",
-    "side": "buy",
-    "quantity": 4500,
-    "price": 52.650000000000006,
-    "lot": 500,
     "status": "submitted",
-    "order_id": "1298125764364869632"
+    "order_id": "1298127167363756032"
   },
   {
     "symbol": "0322.HK",
     "side": "buy",
     "quantity": 20000,
-    "price": 12.620000000000001,
+    "price": 12.51,
+    "last": 12.49,
     "lot": 2000,
     "status": "submitted",
-    "order_id": "1298125770312396800"
+    "order_id": "1298127173122531328"
   },
   {
     "symbol": "0006.HK",
     "side": "buy",
     "quantity": 4000,
-    "price": 61.300000000000004,
+    "price": 60.85,
+    "last": 60.8,
     "lot": 500,
     "status": "submitted",
-    "order_id": "1298125776238944256"
+    "order_id": "1298127183272751104"
   },
   {
     "symbol": "0003.HK",
     "side": "buy",
     "quantity": 35000,
-    "price": 7.26,
+    "price": 7.23,
+    "last": 7.22,
     "lot": 1000,
     "status": "submitted",
-    "order_id": "1298125782433935360"
+    "order_id": "1298127190281433088"
   },
   {
     "symbol": "0316.HK",
     "side": "buy",
     "quantity": 1500,
-    "price": 153.70000000000002,
+    "price": 152.4,
+    "last": 152.3,
     "lot": 500,
     "status": "submitted",
-    "order_id": "1298125788427591680"
+    "order_id": "1298127196245733376"
   },
   {
     "symbol": "0857.HK",
     "side": "buy",
     "quantity": 26000,
-    "price": 9.86,
+    "price": 9.79,
+    "last": 9.78,
     "lot": 2000,
     "status": "submitted",
-    "order_id": "1298125796396769280"
+    "order_id": "1298127202419748864"
   }
 ]

@@ -127,13 +127,18 @@ def build_plan(weights: dict[str, float], budget_local: float) -> list[dict]:
         if not q or not q.get("last"):
             continue
         last = float(q["last"])
-        price = round_price(sym, last * 1.01)
+        if sym.endswith(".HK"):
+            # 港股：用「最新价 + 一档 tick」作为限价，天然落在合法档位上
+            price = round(last + hk_tick(last), 3)
+        else:
+            price = round(last * 1.01, 2)
         lot = lots.get(sym, 1)
         value = budget_local * w
         shares = int(value / price // lot) * lot
         if shares <= 0:
             continue
-        plan.append({"symbol": sym, "side": "buy", "quantity": shares, "price": price, "lot": lot})
+        plan.append({"symbol": sym, "side": "buy", "quantity": shares,
+                     "price": price, "last": last, "lot": lot})
     return plan
 
 
@@ -144,14 +149,29 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
             results.append({**item, "status": "dry-run"})
             continue
         try:
-            preview = cli_json(["order", item["side"], item["symbol"],
-                                str(item["quantity"]), "--price", f"{item['price']:.3f}"])
-            code = preview.get("confirmation_code")
-            if not code:
-                results.append({**item, "status": "no-confirm-code"})
+            # 三级降级：tick 价 -> 最新价 -> 市价单（港股 tick 边界案例兜底）
+            attempts = [
+                ["--price", f"{item['price']:.3f}"],
+                ["--price", f"{item.get('last', item['price']):.3f}"],
+                ["--order-type", "MO"],
+            ]
+            last_error: Exception | None = None
+            for extra in attempts:
+                try:
+                    preview = cli_json(["order", item["side"], item["symbol"],
+                                        str(item["quantity"]), *extra])
+                    code = preview.get("confirmation_code")
+                    if not code:
+                        continue
+                    resp = cli_json(["order", item["side"], item["symbol"],
+                                     str(item["quantity"]), *extra, "--execute", code])
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    resp = None
+            if resp is None:
+                results.append({**item, "status": f"error: {str(last_error)[:90]}"})
                 continue
-            resp = cli_json(["order", item["side"], item["symbol"], str(item["quantity"]),
-                             "--price", f"{item['price']:.3f}", "--execute", code])
             results.append({**item, "status": "submitted", "order_id": resp.get("order_id")})
         except Exception as exc:  # noqa: BLE001
             results.append({**item, "status": f"error: {str(exc)[:90]}"})
