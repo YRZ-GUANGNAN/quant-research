@@ -93,6 +93,18 @@ def lot_sizes(symbols: list[str]) -> dict[str, int]:
     return out
 
 
+def cash_by_ccy() -> dict[str, float]:
+    """按币种读取可用现金，用于下单前购买力预检。"""
+    out: dict[str, float] = {}
+    for acct in cli_json(["assets"]) or []:
+        if not isinstance(acct, dict):
+            continue
+        for c in acct.get("cash_infos") or []:
+            if isinstance(c, dict) and c.get("currency"):
+                out[c["currency"]] = float(c.get("available_cash") or 0)
+    return out
+
+
 def net_assets_usd() -> float:
     assets = cli_json(["assets"])
     if isinstance(assets, list):
@@ -196,8 +208,15 @@ def main() -> int:
     hk_w = sleeve_targets("hk", 15, ".HK")
     print(f"[model] 美股 {len(us_w)} 只 / 港股 {len(hk_w)} 只")
 
-    us_plan = build_plan(us_w, total * args.us_weight) if args.only in ("us", "both") else []
-    hk_plan = build_plan(hk_w, total * (1 - args.us_weight) * USD_HKD) if args.only in ("hk", "both") else []
+    cash = cash_by_ccy()
+    us_budget = min(total * args.us_weight, cash.get("USD", 0.0) * 0.98)
+    hk_budget_hkd = min(total * (1 - args.us_weight) * USD_HKD, cash.get("HKD", 0.0) * 0.98)
+    print(f"[cash] USD 可用 {cash.get('USD', 0):,.2f} / HKD 可用 {cash.get('HKD', 0):,.2f} / SGD 可用 {cash.get('SGD', 0):,.2f}")
+    if cash.get("HKD", 0.0) <= 0:
+        print("[skip] HKD 可用现金为负，港股袖子本轮跳过（需在 App 换汇，或卖出港股回笼 HKD）")
+    print(f"[budget] 美股 {us_budget:,.2f} USD（预检后）；港股 {hk_budget_hkd:,.2f} HKD（预检后）")
+    us_plan = build_plan(us_w, us_budget) if args.only in ("us", "both") else []
+    hk_plan = build_plan(hk_w, hk_budget_hkd) if args.only in ("hk", "both") else []
     plan = us_plan + hk_plan
     if args.skip_existing:
         try:
