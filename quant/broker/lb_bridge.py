@@ -75,8 +75,10 @@ def kline(symbol: str, start: str, end: str, period: str = "day") -> list:
                   "--period", period]) or []
 
 
-def order_list() -> list:
-    return _json(["order", "list"]) or []
+def order_list(history: bool = False) -> list:
+    """订单列表：不带子命令即列出当日订单；history=True 返回历史订单。"""
+    args = ["order", "--history"] if history else ["order"]
+    return _json(args) or []
 
 
 def order_buy(symbol: str, quantity: int, price: float | None = None,
