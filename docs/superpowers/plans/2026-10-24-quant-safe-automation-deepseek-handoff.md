@@ -164,6 +164,33 @@ git commit -m "docs: 提交安全自动化基线核验"
 
 P0 报告经维护者审核前，不得开始 P1。
 
+
+### Task 0.5：凭证与 paper 授权现状核验（只读）
+
+**目的**：确认当前凭证能否构造 `enable_papertrading=True` 的 SDK context。实测当前 token
+在 paper 环境返回 `202201 get userinfo error`，若不前置核验，P5 会以"假 SDK 通过、真环境不可用"卡死。
+
+**Files:** Create `docs/superpowers/reports/2026-10-24-paper-credential-status.md`（只写状态码，不写凭证）
+
+**Steps:**
+1. 读取 `.env` 是否存在（不打印内容），检查三个键是否齐全；
+2. 尝试构造 `Config.from_apikey(..., enable_papertrading=True)` 并 `TradeContext.account_balance()`；
+3. 仅记录成功/异常类型与错误码（如 202201），**不得打印 token、member_id、余额数值**；
+4. 结论三分支：`PAPER_READY` / `PAPER_AUTH_REQUIRED` / `CREDENTIAL_MISSING`。
+
+**验收**：报告提交；`PAPER_AUTH_REQUIRED` 时 P5 允许以 BLOCKED 终态结束，不算失败。
+
+## 4.5 现状对照表（c22b74a 已包含，避免重复实现或回退）
+
+| 已修项 | 当前位置 | 新架构归属 |
+|---|---|---|
+| 汇率 ffill bug | `scripts/portfolio_fx.py` | 研究侧，保留 |
+| predict / predict_multi 假共识 | `scripts/predict*.py` | `targets.py` |
+| 订单提交幂等/unknown | `scripts/lb_order_map.py` | `plans.py` + `ledger.py` |
+| 交易前数据门禁 | `scripts/pre_trade_gate.py` | `sessions.py` + `staging.py` |
+| 目标快照 | `scripts/build_target_snapshot.py` | `targets.py` |
+| 模拟盘 fail-closed 校验 | `lb_order_map` / `lb_rebalance` | `policy.py` + `lb_paper.py` |
+
 ## 5. P1：纯函数基础与依赖门禁
 
 ### Task 1：依赖兼容性
@@ -222,3 +249,10 @@ git commit -m "feat: 增加运行锁和脱敏状态清单"
 
 P1 完成后停止，等待维护者审核；未通过不得进入数据写入相关任务。
 
+## P6.5：发布与一致性校验（审查副本 → D: 运行副本）
+
+1. 只有 lead 执行合并；合并前后 `git rev-parse HEAD` 必须与审查副本一致；
+2. D: 运行副本在重构期间保持 `QuantDailyRun` / `QuantUSOpen` 为 Disabled；
+3. 合并后依次执行：`python -m pytest -q`、`python scripts/pre_trade_gate.py`、
+   `python scripts/trade_cycle.py --profile data-close --dry-run`（三件套全绿才继续）；
+4. 打 tag（`runtime-YYYY-MM`）；回滚 = `git revert` 到 tag + 任务保持 Disabled + 删除 `state/` 后从 staging 重建。

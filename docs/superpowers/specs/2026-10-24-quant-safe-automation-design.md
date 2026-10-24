@@ -628,3 +628,16 @@ lot size、tick size、报价或市场状态查询失败时必须阻断，不能
 - 历史敏感信息在 GitHub 外部副本中可能仍需人工清理。
 
 这些风险必须在运行报告中保持可见，不能通过降级为 fail-open 来掩盖。
+
+## 18. 补充约定（lead 评审 2026-10-24）
+
+1. **错过执行窗口**：若某快照的 `eligible_execution_session` 当天机器未运行，
+   记为 `SKIPPED_MISSED_WINDOW`，**绝不自动补单**（补跑会引入未来相位状态）；
+   下一个可执行时点必须属于下一个调仓周期。
+2. **日历 fallback**：若 `exchange_calendars` 与 pandas 3.1 / numpy 2.4 / Py3.13 不兼容，
+   允许 vendored 交易日历表（XSHG / XHKG / XNYS，2024–2027）作为 Plan B；
+   execute 路径不得使用「工作日近似」。
+3. **账户身份**：`account_enrollment_id` 是首次人工登记模拟账户时生成的本地 UUID，
+   与 token 无关；token 轮换不得产生新 enrollment 或重置消费历史。
+4. **Python 版本**：最低支持 3.12（代码使用了 3.12+ 的嵌套 f-string）；
+   `requires-python >= 3.12` 写入 pyproject，CI 使用 3.13。

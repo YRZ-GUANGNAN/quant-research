@@ -18,3 +18,9 @@ reports/*.csv
 .env
 .DS_Store
 Thumbs.db
+state/
+logs/
+reports/
+snapshots/
+.env
+data/cache/
