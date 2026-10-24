@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
-from lb_order_map import _compute_sleeve_targets  # noqa: E402
+from lb_order_map import sleeve_targets  # noqa: E402
 from quant.data import store  # noqa: E402
 
 SLEEVES = {"us": (20, ".US", 20), "hk": (15, ".HK", 20)}
@@ -44,7 +44,7 @@ def main() -> int:
         topk, suffix, reb = SLEEVES[market]
         bars = store.load_bars(market)
         data_date = bars["date"].max().date()
-        weights = _compute_sleeve_targets(market, topk, suffix)
+        weights = sleeve_targets(market, topk, suffix)
         model_hash = hashlib.md5(
             (ROOT / "models" / "model_v4.json").read_bytes()
         ).hexdigest()[:8]
