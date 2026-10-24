@@ -1,5 +1,9 @@
 ﻿# Codex 安全自动化交接文档评审（lead 视角，2026-10-24）
 
+> **历史评审：** 本文的问题裁决已经汇总进方案 B。实施时只以
+> `docs/superpowers/specs/2026-10-24-quant-safe-automation-plan-b-design.md`
+> 和 `docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b.md` 为准。
+
 评审对象：
 - `docs/superpowers/specs/2026-10-24-quant-safe-automation-design.md`（378 行）
 - `docs/superpowers/plans/2026-10-24-quant-safe-automation-deepseek-handoff.md`（224 行）

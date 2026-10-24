@@ -1,5 +1,8 @@
 # 量化交易安全自动化实施任务书（DeepSeek 执行版）
 
+> **已被取代：** 本文保留为历史交接材料。不要按本文继续实施。
+> 当前唯一任务书是 `docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: 按任务顺序执行；每个任务完成后运行该任务的测试并提交独立 commit，等待外部审核后再进入下一个任务。不得跳过失败测试，不得把“能运行”当作“安全门禁已通过”。
 
 **Goal:** 在不启用任何定时任务、不使用任何券商凭证、不提交任何订单的前提下，把 `quant-research` 改造成默认 dry-run、数据与目标快照可追溯、Longbridge 模拟盘执行单通道且 fail-closed 的安全自动化系统。

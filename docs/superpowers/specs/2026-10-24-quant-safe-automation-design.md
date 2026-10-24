@@ -1,5 +1,9 @@
 # 量化交易安全自动化重构设计（2026-10-24）
 
+> **已被取代：** 本文保留为历史审计材料。实施时只以
+> `docs/superpowers/specs/2026-10-24-quant-safe-automation-plan-b-design.md`
+> 和 `docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b.md` 为准。
+
 - 状态：设计已批准，待实施
 - 基线提交：`5caa85ce66347d80137ac51cf754e92c2fb77272`
 - 适用范围：行情刷新、完成交易日判定、目标快照、Longbridge 模拟盘执行、运行后检查、相关文档与测试

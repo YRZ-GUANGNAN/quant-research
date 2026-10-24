@@ -1,5 +1,10 @@
 # Longbridge 接入配置（给用户的最小操作清单）
 
+> **历史文档，禁止照此执行：** 本文记录的是旧 CLI/Legacy 接入过程，不能证明当前 OAuth
+> 模拟盘交易权限，也不得用于解锁自动执行。当前唯一架构和任务书见
+> `docs/superpowers/specs/2026-10-24-quant-safe-automation-plan-b-design.md` 与
+> `docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b.md`。
+
 ## 已完成（我这边的动作）
 
 | 项 | 状态 |
