@@ -182,6 +182,7 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
                 ["--price", f"{item.get('last', item['price']):.3f}"],
                 ["--price", f"{item.get('last', item['price']) * 1.005:.3f}"],
             ]
+            resp = None
             last_error: Exception | None = None
             for extra in attempts:
                 try:
@@ -189,6 +190,7 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
                                         str(item["quantity"]), *extra])
                     code = preview.get("confirmation_code")
                     if not code:
+                        last_error = RuntimeError("no confirmation_code")
                         continue
                     resp = cli_json(["order", item["side"], item["symbol"],
                                      str(item["quantity"]), *extra, "--execute", code])
@@ -196,10 +198,22 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
                     resp = None
-            if resp is None:
+                    # 超时/网络异常：先查订单，确认是否已被受理，避免重复下单
+                    try:
+                        recent = cli_json(["order"]) or []
+                        mine = [o for o in recent if isinstance(o, dict)
+                                and o.get("symbol") == item["symbol"]
+                                and str(o.get("quantity")) == str(item["quantity"])]
+                        if mine:
+                            resp = {"order_id": mine[-1].get("order_id")}
+                            break
+                    except Exception:  # noqa: BLE001 - 查询失败 fail-closed
+                        results.append({**item, "status": "unknown: 提交异常且查询失败"})
+                        return results
+            if resp is None or not resp.get("order_id"):
                 results.append({**item, "status": f"error: {str(last_error)[:90]}"})
                 continue
-            results.append({**item, "status": "submitted", "order_id": resp.get("order_id")})
+            results.append({**item, "status": "submitted", "order_id": resp["order_id"]})
         except Exception as exc:  # noqa: BLE001
             results.append({**item, "status": f"error: {str(exc)[:90]}"})
     return results
@@ -215,9 +229,23 @@ def main() -> int:
     ap.add_argument("--skip-existing", action="store_true", help="跳过今日已有订单的标的")
     args = ap.parse_args()
     args.dry_run = not args.execute
-    if args.execute and os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
-        print("[guard] 拒绝执行：请设置环境变量 LB_ACCOUNT_KIND=paper 确认当前为模拟账户")
-        raise SystemExit(2)  # 默认 dry-run：必须显式 --execute 才会提交
+    if args.execute:
+        if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
+            print("[guard] 拒绝执行：请设置 LB_ACCOUNT_KIND=paper")
+            raise SystemExit(2)
+        # 真正的账户校验：用 SDK 模拟盘开关连接一次，失败即拒绝（fail-closed）
+        try:
+            from quant.broker.lb_sdk import paper_config
+            from longbridge.openapi import TradeContext
+            _ctx = TradeContext(paper_config())
+            try:
+                _bal = _ctx.account_balance()
+            finally:
+                getattr(_ctx, "close", lambda: None)()
+            print("[guard] 模拟盘账户校验通过（enable_papertrading=True 可连接）")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 模拟盘校验失败，拒绝执行: {str(exc)[:120]}")
+            raise SystemExit(3)  # 默认 dry-run：必须显式 --execute 才会提交
 
     total = net_assets_usd()
     print(f"[broker] 模拟盘净资产 USD {total:,.2f}")
@@ -294,6 +322,9 @@ def main() -> int:
     out = Path("logs") / "lb_order_map_result.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    if any(str(r.get("status", "")).startswith(("error", "unknown", "no-confirm")) for r in results):
+        print("[result] 存在失败/未知订单，返回非零")
+        sys.exit(1)
     print(f"[plan] 结果 -> {out}（成功 {sum(1 for r in results if r['status'] in ('submitted', 'dry-run'))} 笔）")
     return 0
 

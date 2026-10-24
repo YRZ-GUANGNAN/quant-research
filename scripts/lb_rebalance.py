@@ -44,9 +44,22 @@ def main() -> int:
     ap.add_argument("--threshold", type=float, default=0.15)
     args = ap.parse_args()
     # 代码级护栏：执行真实下单前必须显式声明这是模拟账户（防止登录账号被换成实盘）
-    if args.execute and os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
-        print("[guard] 拒绝执行：请设置环境变量 LB_ACCOUNT_KIND=paper 确认当前为模拟账户")
-        return 2
+    if args.execute:
+        if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
+            print("[guard] 拒绝执行：请设置 LB_ACCOUNT_KIND=paper")
+            return 2
+        try:
+            from quant.broker.lb_sdk import paper_config
+            from longbridge.openapi import TradeContext
+            _ctx = TradeContext(paper_config())
+            try:
+                _ctx.account_balance()
+            finally:
+                getattr(_ctx, "close", lambda: None)()
+            print("[guard] 模拟盘账户校验通过")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 模拟盘校验失败，拒绝执行: {str(exc)[:120]}")
+            return 3
 
     sess = market_sessions()
     mkt = "US" if args.market == "us" else "HK"

@@ -62,3 +62,31 @@
 ### 数据现状
 
 - 缓存 1,123,342 行，覆盖 2018-01-02 ~ 2026-10-23，563 只，无重复行。
+## 第三轮复审回应（2026-10-24 11:30）
+
+### 已修
+
+| # | 问题 | 状态 |
+|---|---|---|
+| 1 | `flush_partial` 在第 50 只未定义即调用（UnboundLocalError） | ✅ 定义移到循环前；语法/导入通过（边界单测未补） |
+| 2 | 数据失败后仍继续下单 | ✅ 新增 `pre_trade_gate.py`：按北京时间收盘点算各市场最近已完成交易日 + 覆盖率≥90% + 指数一致性 + 重复行；失败 `exit 1`；接入 daily_run（4b）与 us_open_run（下单前硬门禁）。实测：US/HK 停在 10-22 时拦截（exit 1），补 `fetch_market` 后三市场 PASS |
+| 3 | 订单响应复用 / 未知状态 | ✅ 每笔 `resp=None` 独立初始化；缺 `confirmation_code` 标记失败；提交异常先查订单判重，查询失败 fail-closed；任一 error/unknown → 进程返回非零 |
+| 4 | 模拟账户只靠环境变量 | ⚠️ 已加 SDK 真校验（`enable_papertrading=True` 连接 + `account_balance`），但当前 token 报 `202201 get userinfo error` → 校验**失败即拒绝交易**（fail-closed）。需要重新用模拟盘 OAuth 授权才能通过 |
+
+### 未修（明确列出）
+
+| 问题 | 说明 |
+|---|---|
+| 调仓节奏不一致 | 海外回测 20 日调仓，执行脚本每天重选；需「目标快照」（model/data version + rebalance_date + next_rebalance_date），非调仓日不选股 |
+| 美股盘中 Yahoo 当日 K | 未排除未收盘 bar |
+| 前复权 staging/原子发布 | 未实现；BaoStock 全量刷新仍不稳定（超时/解码异常） |
+| post_check JSON 结构校验 | 部分：连接失败标 FAIL，但订单查询异常仍可能 PASS |
+| model_v4 正式字段 | 仍为旧数字，仅加了作废说明 |
+| README 正文 | 旧汇率表格未重写 |
+| 隐私历史 | 仓库已私有；历史未清洗 |
+
+### 交易安全状态
+
+- `QuantDailyRun` / `QuantUSOpen`：**Disabled**；
+- `--execute` 现在要求：`LB_ACCOUNT_KIND=paper` + SDK 模拟盘连接成功；当前第二步失败 → **所有自动下单被拒绝**（安全但阻塞）。
+- 解锁条件：用模拟盘 OAuth 重新授权（`scripts/lb_oauth.py`）拿到能在 `enable_papertrading=True` 下工作的 token。

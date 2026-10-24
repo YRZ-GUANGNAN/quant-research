@@ -122,3 +122,29 @@ def submit_order(symbol: str, side: str, quantity: int, price: float | None = No
             last_error = exc
             continue
     raise RuntimeError(f"SubmitOrderOptions 构造失败: {last_error}")
+
+
+def paper_config():
+    """构造「模拟盘」连接的 Config（enable_papertrading=True）。
+
+    用于在真实下单前确认 SDK 能连上模拟盘账户；连不上即拒绝交易（fail-closed）。
+    """
+    from pathlib import Path as _P
+    from longbridge.openapi import Config
+
+    env = {}
+    root = _P(__file__).resolve().parents[2]
+    candidates = [root / "tools" / ".env", root / ".env", _P.home() / "quant-research" / ".env"]
+    env_file = next((c for c in candidates if c.exists()), None)
+    if env_file is None:
+        raise FileNotFoundError(f"未找到 .env（尝试: {[str(c) for c in candidates]}）")
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.strip().startswith("#"):
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip().strip('"').strip("'")
+    return Config.from_apikey(
+        app_key=env["LONGBRIDGE_APP_KEY"],
+        app_secret=env["LONGBRIDGE_APP_SECRET"],
+        access_token=env["LONGBRIDGE_ACCESS_TOKEN"],
+        enable_papertrading=True,
+    )
