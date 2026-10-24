@@ -28,6 +28,14 @@ def main() -> int:
         codes = codes[: args.limit]
     print(f"[bs-full] 待刷新 {len(codes)} 只（前复权 adjustflag=2）")
 
+    def flush_partial() -> None:
+        if not frames:
+            return
+        new = pd.concat(frames, ignore_index=True)
+        merged = store.upsert_bars(new, market="cn")
+        print(f"[bs-full] 中途落盘 {len(new)} 行（缓存 {len(merged)} 行）", flush=True)
+        frames.clear()
+
     frames, failed = [], []
     t0 = time.time()
     # 单次登录复用会话（每只单独 login 会让 563 只耗时数小时）
@@ -46,13 +54,6 @@ def main() -> int:
                 flush_partial()
                 print(f"  [bs-full] {i}/{len(codes)}  {time.time()-t0:.0f}s  失败 {len(failed)}", flush=True)
 
-    def flush_partial() -> None:
-        if not frames:
-            return
-        new = pd.concat(frames, ignore_index=True)
-        merged = store.upsert_bars(new, market="cn")
-        print(f"[bs-full] 中途落盘 {len(new)} 行（缓存 {len(merged)} 行）", flush=True)
-        frames.clear()
 
     if frames:
         new = pd.concat(frames, ignore_index=True)
