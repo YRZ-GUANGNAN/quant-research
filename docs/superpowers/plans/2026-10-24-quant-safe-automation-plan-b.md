@@ -111,14 +111,14 @@ git diff --check
 
 - `.gitignore`
 - `tests/test_repository_contracts.py`
-- 验证旧设计/交接/评审文档以及 `docs/longbridge-setup.md`、`docs/analysis/external-audit-2026-10.md` 已有醒目的 historical/superseded 指针；若批准 tag 中缺失，只补 banner，不改方案 B 权威内容
+- 验证旧设计/交接/评审文档以及 `docs/longbridge-setup.md`、`docs/analysis/external-audit-2026-10.md` 已有醒目的 historical/superseded 指针；若批准 tag 中缺失，返回 `BLOCKED_TAG_DOCUMENT_BANNER_MISSING`，由 Codex lead 修正 tag，不由执行代理自行改动权威文档
 
 **实现要求：**
 
 1. 整理重复 ignore 条目，使用根锚定：`/state/`、`/logs/`、`/reports/`、`/snapshots/`、`/data/cache/`。
 2. 保留 `.env`、Python cache、虚拟环境等现有安全忽略。
 3. 自动测试证明 `docs/superpowers/reports/probe.md` 不被忽略，而 `/reports/probe.json` 被忽略。
-4. 文档契约测试只在两份权威方案 B 文档中验证：metadata 的代码基线严格等于完整 `286e9bacfd6e5d080bee3f003be51b02d39dccc6`；CLI 模式只使用 `--mode dry-run|connected-dry-run|execute`；state 保留规则和 OAuth SDK-only 规则存在且无肯定式 Legacy/CLI 执行建议。五份旧文档只校验顶部 historical/superseded banner，不扫描其历史正文来决定当前契约。
+4. 文档契约测试分别读取三份权威方案 B 文档：metadata 的代码基线严格等于完整 `286e9bacfd6e5d080bee3f003be51b02d39dccc6`；CLI 模式只使用 `--mode dry-run|connected-dry-run|execute`；state 保留规则和 OAuth SDK-only 规则存在且无肯定式 Legacy/CLI 执行建议。五份旧文档只校验顶部 historical/superseded banner，不扫描其历史正文来决定当前契约。
 5. 不删除历史研究产物；安全研究报告迁移留到 P6。
 
 **验证：**
@@ -144,13 +144,13 @@ python -m pytest tests/test_repository_contracts.py -q
 
 **实现要求：**
 
-1. 上述旧 CLI 入口收到任何 execute/撤单/实际写入意图时，在网络、CLI、SDK context、行情或账户调用前返回退出码 20；必须覆盖 `--execute`、`--execute=...` 以及 argparse 可能接受的 `--e`/`--ex`/`--exec` 前缀。
+1. 上述旧 CLI 入口收到任何 execute/实际写入意图时，在网络、CLI、SDK context、行情或账户调用前返回退出码 20；必须覆盖 `--execute`、`--execute=...` 以及 argparse 可能接受的 `--e`/`--ex`/`--exec` 前缀。只读的 `order cancel` 预览查询可以保留用于历史审计，但带 execute token 的实际撤单必须被同一 guard 阻断。
 2. `lb_order_map.py`、`lb_rebalance.py`、`lb_fix_hkd.py` 的 `--execute` 明确输出 `BLOCKED_LEGACY_EXECUTE`。
 3. `lb_reconcile.py` 默认只读 dry-run；旧 CLI cancel 路径不可达，任何请求写入都返回 20。
 4. 保留纯本地计划能力时，输出必须明确仅为 legacy preview，不得宣称 canonical plan。
 5. 不以 `LB_ACCOUNT_KIND=paper` 作为授权依据。
 6. 所有 parser 使用 `allow_abbrev=False`，同时在 parse 前检查原始 token、parse 后复核 `args.execute`；`lb_fix_hkd.py`、`lb_reconcile.py` 在导入 `quant.broker.legacy_guard` 前增加仓库根 `sys.path` bootstrap。
-7. 测试 monkeypatch `subprocess.run/Popen`、`load_env`、`_config`、`trade_context`、SDK import/factory 和 broker write，断言调用次数全部为 0。
+7. 测试 monkeypatch `subprocess.run/Popen`、`load_env`、`_config`、`trade_context`、SDK import/factory 和 broker write，断言调用次数全部为 0；`order buy/sell/cancel/replace` 无论是否带 execute token 都必须在命令位被阻断，普通只读 `order` 列表仍可保留。
 8. 四个脚本必须用真实子进程分别验证 `--execute` 和 `--exec` 返回 20；测试把 `LOCALAPPDATA`、`LONGBRIDGE_BIN` 指向 `tmp_path` 下不存在的文件，证明不是外部 CLI “碰巧失败”。
 9. `lb_bridge._run([... , "--execute"])` 必须有直接测试，且在检查 CLI 路径或调用 subprocess 前阻断。
 10. kill-switch 必须可测试为函数或最早参数门禁，不能依赖真实 CLI 缺失而“碰巧失败”。
@@ -389,7 +389,7 @@ producer 只写 candidate；在收益率/因子前删除未来或未完成 bar�
 - `scripts/trade_cycle.py` 的 data-close 参数壳
 - `tests/test_data_close_cycle.py`
 
-固定顺序：lock → manifest → 一次 freeze clock/sessions/CURRENT hash → 为全部 requested markets 运行注入的 producer adapter → cutoff → gate → 完成本轮全部 immutable equity generations → 聚合所有 `equity-<market>` 更新并对顶层 CURRENT 做一次 batch CAS → readback → 释放。禁止逐市场切指针；全部市场成功时 CAS 调用数严格为 1，任一市场失败时为 0。生产 adapter 与测试 fake 使用同一接口。缺少 FX 映射不阻断纯 equity data-close，但 open profile 后续必须同时 pin 有效 equity 与 FX generation。失败立即停止，不运行后续 stage；日历失败同样退出 11 且不发布。`--no-publish` 不切 CURRENT；`--mode dry-run` 仍可在指定临时 root 发布本地 generation。
+固定顺序：lock → manifest → 一次 freeze clock/sessions/CURRENT hash → 为全部 requested markets 运行注入的 producer adapter → cutoff → gate → 完成本轮全部 immutable equity generations → 聚合所有 `equity-<market>` 更新并对顶层 CURRENT 做一次 batch CAS → readback → 释放。禁止逐市场切指针；全部市场成功时成功路径 CAS 调用数严格为 1，任一市场失败时为 0。若切换后的 readback 失败且 CURRENT 仍指向本轮新 hash，只允许一次有条件的补偿 CAS 回切旧指针；并发更新者已推进时禁止覆盖。生产 adapter 与测试 fake 使用同一接口。缺少 FX 映射不阻断纯 equity data-close，但 open profile 后续必须同时 pin 有效 equity 与 FX generation。失败立即停止，不运行后续 stage；日历失败同样退出 11 且不发布。`--no-publish` 不切 CURRENT；`--mode dry-run` 仍可在指定临时 root 发布本地 generation。
 
 **提交：** `feat: 增加数据收盘编排器`
 

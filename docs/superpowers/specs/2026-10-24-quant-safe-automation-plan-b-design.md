@@ -188,7 +188,7 @@ open profile 的默认 `dry-run` 是纯离线预览，只接受测试/审核 fix
 
 ### 6.3 原子写
 
-流程固定为：同目录临时文件 → 写入 → flush/fsync → 关闭 → 内容读回验证 → `os.replace()` → 父目录同步（平台支持时）。发布一个或多个 generation 时先完成本轮全部文件，再对顶层 `CURRENT.json` 做恰好一次 batch CAS。异常清理只能删除本轮临时文件。
+流程固定为：同目录临时文件 → 写入 → flush/fsync → 关闭 → 内容读回验证 → `os.replace()` → 父目录同步（平台支持时）。成功发布路径在全部 generation 安装完成后对顶层 `CURRENT.json` 做恰好一次 batch CAS；若该次切换后的读回校验失败，且 CAS 仍证明 CURRENT 指向本轮新 hash，允许最多一次有条件的补偿 CAS 回切旧指针。并发者已推进时禁止回切。异常清理只能删除本轮临时文件。
 
 ## 7. 日历、完成 bar 与执行窗口
 
@@ -253,7 +253,7 @@ US/HK 快照的 `eligible_execution_session` 是 `rebalance_session` 后的下�
 
 equity generation 至少包含 `bars.csv.gz`、`index_bars.csv.gz`、`universe.json`、可选 `members.csv.gz` 和 `manifest.json`；FX generation 包含 `rates.csv.gz` 与 `manifest.json`。CSV 列/换行/浮点格式和 gzip `mtime=0` 固定。manifest 至少记录 dataset key、schema、generation id、code commit、source receipts、cutoff、universe receipt、每个文件的 canonical content hash、字节 SHA-256 和 size。`generation_id` 严格按第 6.1.1 节的白名单投影产生，不含自身、manifest byte hash 或运行元数据。
 
-发布者进入 candidate 前冻结 `expected_current_sha256`。切换前再次比较，不相等则退出 13；最终 generation 目录若已存在，只能在 manifest 与每个文件 hash/size 完全一致时复用，否则按 hash collision 退出 13。切指针后读回失败时，只能在 CURRENT 仍等于本轮新 hash 时 CAS 回切旧指针；若已有更新者推进，禁止覆盖并退出 13。
+发布者进入 candidate 前冻结 `expected_current_sha256`。切换前再次比较，不相等则退出 13；最终 generation 目录若已存在，只能在 manifest 与每个文件 hash/size 完全一致时复用，否则按 hash collision 退出 13。成功路径只做一次 batch CAS；切指针后读回失败时，只能在 CURRENT 仍等于本轮新 hash 时做至多一次补偿 CAS 回切旧指针；若已有更新者推进，禁止覆盖并退出 13。
 
 新增 `GenerationView`：一轮开始只解析一次顶层 CURRENT，pin `pointer_hash` 和所需 dataset generation。`quant/data/store.py`、`quant/data/panel.py` 与自动化调用必须显式接收该 view；即使运行中另一进程切换 CURRENT，本轮仍只读原 generation。automation 的 data root 必须由 CLI/cycle 显式注入，不得读取 `quant/config.py` 的全局 `CACHE_DIR`。legacy flat reader 改成显式 `LegacyFlatStore`/research-only 路径，automation 和 execute 调用图不得调用。
 
@@ -402,13 +402,13 @@ PREPARED -> SUBMITTING -> WORKING -> PARTIALLY_FILLED -> FILLED
 1. 使用 `OAuthBuilder` 和 `Config.from_oauth(oauth, enable_papertrading=True)`。
 2. 调度器先通过可注入 probe 检查 SDK 5.2.2 的 token cache；默认缓存位于 `~/.longbridge/openapi/tokens/<client_id>`。生产 enrollment identity 固定为 `client_id + resolved cache path + 用户登记的 enrollment_generation/attestation`，不使用 token 文件 hash/mtime，也不声称密码学账户绑定；该 identity 进入 plan 和门禁，但不得进入或改变 consumption key。
 3. 即使缓存存在，也必须按 longbridge 5.2.2 的 positional-only 签名调用 `OAuthBuilder.build(reject_interactive_callback)`；callback 一旦收到 URL 就立即抛出 `AUTH_REQUIRED`。缓存缺失、失效或过期都不能打开浏览器或等待人工回调。
-4. 不使用 `refresh_access_token`、Legacy API key、Longbridge CLI 或现有 `lb_bridge.py` 执行链。
+4. 不使用 `refresh_access_token`、Legacy API key、Longbridge CLI 或现有 `lb_bridge.py` 执行链；旧 CLI 的 `order buy/sell/cancel/replace` 命令均不属于 canonical adapter 的可用接口。
 5. 一轮恰好创建一个 `TradeContext` 和一个 `QuoteContext`，二者使用同一 config；前者传给全部账户/订单操作，后者传给报价/市场状态/证券元数据操作。longbridge 5.2.2 未保证 context 有 `close()`，adapter 生命周期只释放引用；若未来能力探测到显式 close，可幂等调用，测试不得要求不存在的 SDK API。
 6. 不复用当前 `lb_sdk.submit_order` 的 `SubmitOrderOptions(**kwargs)` 兼容代码；按 longbridge 5.2.2 的 `TradeContext.submit_order(symbol, order_type, side, submitted_quantity, time_in_force, submitted_price=..., remark=..., client_request_id=...)` 实际签名传参。
 7. 缺 trade permission、paper userinfo 校验失败、响应 schema 缺字段或 order id 不可验证时 fail-closed。
 8. TradeContext 只读面固定为 `account_balance`、`stock_positions`、当前 session 的 `today_orders/history_orders` 和必要的 `order_detail`；必须完整处理分页、严格 schema 和 session 过滤。QuoteContext 只读面固定为 `quote`、`static_info`、`trading_session`。任一未知字段/enum、漏页或查询异常均 fail-closed。
 9. post-check 必须集成在 `cycle.py` 同一进程并复用同一 TradeContext；独立 `post_daily_check.py` 只能读取本地 manifest/ledger，不再查询券商。
-10. 订单匹配优先 exact `client_request_id`；若响应不提供该字段，只允许 exact deterministic remark + normalized symbol + side + quantity + order type + price + execution session。零匹配、多匹配、缺 order id 或 schema 错误均退出 22。状态映射固定为：`New/NotReported -> WORKING`；`PartialFilled -> PARTIALLY_FILLED`；`Filled -> FILLED`，并在 post-check 唯一核验后记录 `RECONCILED`；`Canceled/Expired/Rejected` 为终态失败。`PARTIALLY_FILLED` 一旦出现，本 run 不再提交 sibling，后续 run 只能只读 reconciliation，并把其他 `PREPARED` sibling 永久转为 `ABORTED_UNSUBMITTED`。历史其他 session 的订单不得参与匹配。
+10. 订单匹配优先 exact `client_request_id`；若响应不提供该字段，只允许 exact deterministic remark + normalized symbol + side + quantity + order type + price + execution session。零匹配、多匹配、缺 order id 或 schema 错误均退出 22。状态映射固定为：`New/NotReported -> WORKING`；`PartialFilled -> PARTIALLY_FILLED`；`Filled -> FILLED`，并在 post-check 唯一核验后记录 `RECONCILED`；`Canceled/Expired/Rejected` 为终态失败。`PARTIALLY_FILLED` 一旦出现，本 run 不再提交 sibling，后续 run 只能只读 reconciliation，并把其他 `PREPARED` sibling 永久转为 `ABORTED_UNSUBMITTED`。历史其他 session 的订单不得参与匹配。旧 `order cancel` 预览查询属于只读操作，可以用于审计；任何带 execute token 的实际撤单一律在 legacy guard 前置阻断，canonical adapter 不提供撤单写入口。
 
 离线实现只能用 fake OAuth/fake context。真实 OAuth 与只读 paper 探针由用户/Codex lead 在后续单独执行。
 

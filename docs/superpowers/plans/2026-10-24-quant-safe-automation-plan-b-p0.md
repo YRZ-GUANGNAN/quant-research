@@ -4,7 +4,7 @@
 
 **Goal:** 在完全离线、不读取凭证或运行数据的前提下，统一方案 B 仓库契约，封死全部已知旧券商写入口，并让两个旧自动化 wrapper 默认返回阻断状态。
 
-**Architecture:** 用一个无外部依赖的 `legacy_guard.py` 统一退出码 20、阻断消息与异常；旧 CLI 在参数解析和任何外部调用前拒绝 `--execute`，旧 SDK/CLI 写函数在读取 `.env`、导入 SDK、创建 context 或启动 subprocess 前抛出阻断异常。PowerShell wrapper 只保留静态阻断壳。
+**Architecture:** 用一个无外部依赖的 `legacy_guard.py` 统一退出码 20、阻断消息与异常；旧 CLI 在参数解析和任何外部调用前拒绝 execute 缩写/等号 token 以及 `order buy/sell/cancel/replace` 命令，旧 SDK/CLI 写函数在读取 `.env`、导入 SDK、创建 context 或启动 subprocess 前抛出阻断异常。PowerShell wrapper 只保留静态阻断壳。
 
 **Tech Stack:** Python 3.12/3.13、pytest、PowerShell、Git；本阶段不需要 Longbridge SDK、网络、真实数据或任何 secret。
 
@@ -182,6 +182,9 @@ def test_authoritative_metadata_and_execution_contract() -> None:
     assert "Config.from_oauth" in spec_oauth
     assert "OAuthBuilder.build(reject_interactive_callback)" in master_oauth
     assert "Config.from_oauth" in master_oauth
+    for section_text in (spec_oauth, master_oauth):
+        assert "LB_ACCOUNT_KIND=paper" not in section_text
+        assert "不使用" in section_text or "不得" in section_text
     assert "policy、enrollment 和 append-only ledger" in master_deploy
     assert "不得进入 P1" in p0_top
 
@@ -257,7 +260,7 @@ git diff --cached --check
 git commit -m "chore: 统一方案B仓库安全契约"
 ```
 
-Expected: exit 0；commit只包含上述两个文件。不要修改两份权威文档或五份历史文档，它们已由批准 tag 固定。
+Expected: exit 0；commit只包含上述两个文件。不要修改三份权威文档或五份历史文档；它们已由批准 tag 固定。若 banner 缺失，报告 `BLOCKED_TAG_DOCUMENT_BANNER_MISSING` 并停止，由 Codex lead 修正 tag。
 
 ---
 
@@ -352,6 +355,28 @@ def test_lb_bridge_run_blocks_execute_tokens_before_path_or_subprocess(
     with pytest.raises(LegacyBrokerWriteBlocked) as caught:
         lb_bridge._run(["order", "buy", "AAPL.US", token])
     assert caught.value.exit_code == 20
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        ["order", "buy", "AAPL.US", "1"],
+        ["order", "sell", "AAPL.US", "1"],
+        ["order", "cancel", "broker-order-id"],
+        ["order", "replace", "broker-order-id"],
+    ],
+)
+def test_lb_bridge_run_blocks_write_commands_without_execute_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tokens: list[str],
+) -> None:
+    monkeypatch.setattr(lb_bridge, "LB_BIN", tmp_path / "missing-longbridge.exe")
+    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(subprocess, "Popen", _boom)
+    with pytest.raises(LegacyBrokerWriteBlocked) as caught:
+        lb_bridge._run(tokens)
+    assert caught.value.exit_code == 20
 ```
 
 - [ ] **Step 2: Run the test and confirm import failure**
@@ -402,15 +427,23 @@ def _is_execute_token(token: str) -> bool:
     )
 
 
+def _has_write_command(tokens: Sequence[str]) -> bool:
+    normalized = [token.partition("=")[0].lower() for token in tokens]
+    return any(
+        first == "order" and second in {"buy", "sell", "cancel", "replace"}
+        for first, second in zip(normalized, normalized[1:])
+    )
+
+
 def reject_execute_argv(argv: Sequence[str]) -> int | None:
-    if not any(_is_execute_token(token) for token in argv):
+    if not any(_is_execute_token(token) for token in argv) and not _has_write_command(argv):
         return None
     print(BLOCKED_LEGACY_EXECUTE)
     return LEGACY_BROKER_WRITE_EXIT
 
 
 def block_execute_tokens(tokens: Sequence[str], operation: str) -> None:
-    if any(_is_execute_token(token) for token in tokens):
+    if any(_is_execute_token(token) for token in tokens) or _has_write_command(tokens):
         block_legacy_broker_write(operation)
 ```
 
@@ -465,18 +498,20 @@ def order_sell(
 
 Before changing code below, replace the entire module docstrings (from the first `"""` through the closing `"""` before `from __future__`) so they no longer advertise a usable legacy write channel. In `quant/broker/lb_sdk.py`, use this complete replacement:
 
-```text
-Longbridge Legacy SDK 兼容模块（只读函数保留；写入入口已永久阻断）。
+```python
+"""Longbridge Legacy SDK 兼容模块（只读函数保留；写入入口已永久阻断）。
 
 `submit_order()` 仅抛出 `LegacyBrokerWriteBlocked(exit_code=20)`；本模块不再是交易通道，也不提供解锁方式。账户/报价读取函数只供历史兼容测试使用，canonical automation 不得导入本模块。
+"""
 ```
 
 In `quant/broker/lb_bridge.py`, use this complete replacement:
 
-```text
-Longbridge CLI Legacy 兼容模块（只读函数保留；任何 order buy/sell 写入已永久阻断）。
+```python
+"""Longbridge CLI Legacy 兼容模块（只读函数保留；任何 order buy/sell 写入已永久阻断）。
 
-`_run()` 只允许历史只读查询；所有 execute/cancel/write token 在启动 CLI 前返回 `BLOCKED_LEGACY_EXECUTE`。canonical automation 不得调用本模块。
+`_run()` 只允许历史只读查询（`quote`、`positions`、`assets`、`order` 列表等）；`order buy/sell/cancel/replace` 命令以及所有 execute token 在启动 CLI 前返回 `BLOCKED_LEGACY_EXECUTE`。canonical automation 不得调用本模块。
+"""
 ```
 
 Do not leave usage examples that show `--execute`, `order buy`, `order sell`, or a claim that this module is an active trading channel.
@@ -510,7 +545,7 @@ Run:
 python -m pytest tests/test_legacy_execute_killswitch.py -q
 ```
 
-Expected: exit 0；`8 passed`；no `.env` read、SDK import/context or subprocess is reached by a write path。
+Expected: exit 0；`12 passed`；no `.env` read、SDK import/context or subprocess is reached by a write path。
 
 P0-B 的 Task 2 与 Task 3 合并为同一个提交边界；不要在此处创建半成品 commit。完成 Step 8 的完整验证后，再按 Step 9 提交 P0-B。
 
@@ -569,7 +604,7 @@ def test_legacy_cli_execute_returns_20_before_external_calls(
         ("lb_reconcile.py", []),
     ],
 )
-@pytest.mark.parametrize("execute_token", ["--execute", "--exec"])
+@pytest.mark.parametrize("execute_token", EXECUTE_TOKENS)
 def test_legacy_cli_subprocess_returns_20_without_external_binary(
     tmp_path: Path,
     script_name: str,
@@ -637,6 +672,30 @@ def test_low_level_execute_tokens_block_before_subprocess(
     monkeypatch.setattr(subprocess, "Popen", _boom)
     with pytest.raises(LegacyBrokerWriteBlocked):
         getattr(module, function_name)(["order", "cancel", "x", execute_token])
+
+
+@pytest.mark.parametrize(
+    "write_tokens",
+    [
+        ["order", "buy", "AAPL.US", "1"],
+        ["order", "sell", "AAPL.US", "1"],
+        ["order", "cancel", "broker-order-id"],
+    ],
+)
+def test_low_level_write_commands_block_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    write_tokens: list[str],
+) -> None:
+    for script_name, function_name in (
+        ("lb_order_map.py", "cli_json"),
+        ("lb_fix_hkd.py", "cli"),
+        ("lb_reconcile.py", "cli_json"),
+    ):
+        module = _load_script(script_name)
+        monkeypatch.setattr(subprocess, "run", _boom)
+        monkeypatch.setattr(subprocess, "Popen", _boom)
+        with pytest.raises(LegacyBrokerWriteBlocked):
+            getattr(module, function_name)(write_tokens)
 
 
 def test_reconcile_default_is_read_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -709,7 +768,7 @@ Replace the module docstring usage lines with only `python scripts/lb_order_map.
 
 - [ ] **Step 4: Update `lb_rebalance.py` with its exact parser guard**
 
-Replace the inclusive block from `import argparse, json, os, sys` through `sys.path.insert(0, str(ROOT / "scripts"))` with this complete block:
+Replace the inclusive block from the line `import argparse, json, os, sys` through the line `sys.path.insert(0, str(ROOT / "scripts"))` (including both existing `sys.path.insert` lines) with this complete block:
 
 ```python
 import argparse
@@ -729,7 +788,21 @@ from quant.broker.legacy_guard import (  # noqa: E402
 )
 ```
 
-Keep the existing `from lb_order_map import ...` immediately after that block. Replace the current `main()` header, parser and `LB_ACCOUNT_KIND`/`paper_config()` guard—from `def main()` through the line immediately before `sess = market_sessions()`—with:
+Immediately after that complete block, add the following import unchanged (do not leave a duplicate import elsewhere):
+
+```python
+from lb_order_map import (  # noqa: E402
+    USD_HKD,
+    cli_json,
+    lot_sizes,
+    market_sessions,
+    net_assets_usd,
+    quotes,
+    sleeve_targets,
+)
+```
+
+Then replace the current `main()` header, parser and `LB_ACCOUNT_KIND`/`paper_config()` guard—from `def main()` through the line immediately before `sess = market_sessions()`—with:
 
 ```python
 def main(argv: Sequence[str] | None = None) -> int:
@@ -743,6 +816,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         allow_abbrev=False,
     )
     ap.add_argument("--market", choices=["us", "hk"], required=True)
+    ap.add_argument("--dry-run", action="store_true", help="兼容参数；当前始终只读")
     ap.add_argument("--execute", action="store_true", help="已禁用；返回 20")
     ap.add_argument("--threshold", type=float, default=0.15)
     args = ap.parse_args(raw_argv)
@@ -796,6 +870,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="旧港币现金补正预览入口（写入已禁用）",
         allow_abbrev=False,
     )
+    ap.add_argument("--dry-run", action="store_true", help="兼容参数；当前始终只读")
     ap.add_argument("--execute", action="store_true", help="已禁用；返回 20")
     ap.add_argument("--target-buffer", type=float, default=0.05)
     args = ap.parse_args(raw_argv)
@@ -869,13 +944,13 @@ Leave the body beginning at `orders = cli_json(["order"]) or []` unchanged. Beca
 
 - [ ] **Step 7: Guard every low-level write-bearing helper**
 
-At the first line of `lb_order_map.cli_json()` add:
+At the first line of `lb_order_map.cli_json()` (the function beginning at `def cli_json(args: list[str], timeout: int = 40)`) add:
 
 ```python
 block_execute_tokens(args, "scripts.lb_order_map.cli_json")
 ```
 
-At the first line of `lb_order_map.submit()` add:
+At the first line of `lb_order_map.submit()` (the function beginning at `def submit(plan: list[dict], dry_run: bool)`) add:
 
 ```python
 if not dry_run:
