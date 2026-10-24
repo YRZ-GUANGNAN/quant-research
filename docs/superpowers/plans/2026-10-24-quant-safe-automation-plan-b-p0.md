@@ -14,7 +14,7 @@
 
 - 设计：`docs/superpowers/specs/2026-10-24-quant-safe-automation-plan-b-design.md`
 - 总路线图：`docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b.md`
-- 批准起点：`plan-b-approved-20261024`
+- 批准起点：`plan-b-approved-20261024-v2`
 - 已审核代码基线：`286e9bacfd6e5d080bee3f003be51b02d39dccc6`
 - 本轮允许的提交只有 P0-A、P0-B、P0-C。
 - 不得 fetch、pull、push、安装包或访问任何业务网络。
@@ -42,7 +42,7 @@ Run:
 ```powershell
 git status --short --branch
 $head = git rev-parse HEAD
-$tag = git rev-parse "plan-b-approved-20261024^{commit}"
+$tag = git rev-parse "plan-b-approved-20261024-v2^{commit}"
 $localMain = git rev-parse origin/main
 Write-Output "HEAD=$head"
 Write-Output "TAG=$tag"
@@ -325,10 +325,57 @@ def test_lb_sdk_submit_blocks_before_env_config_context_or_sdk_import(
 
     monkeypatch.setattr(lb_sdk, "load_env", _boom)
     monkeypatch.setattr(lb_sdk, "_config", _boom)
-    monkeypatch.setattr(lb_sdk, "trade_context", _boom)
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     with pytest.raises(LegacyBrokerWriteBlocked) as caught:
         lb_sdk.submit_order("AAPL.US", "buy", 1, 100.0)
+    assert caught.value.exit_code == LEGACY_BROKER_WRITE_EXIT == 20
+
+
+def test_lb_sdk_exports_no_trade_context_or_paper_config() -> None:
+    assert not hasattr(lb_sdk, "trade_context")
+    assert not hasattr(lb_sdk, "paper_config")
+
+
+@pytest.mark.parametrize(
+    ("wrapper_name", "method_name"),
+    [
+        ("account_balance", "account_balance"),
+        ("positions", "stock_positions"),
+        ("today_orders", "today_orders"),
+    ],
+)
+def test_lb_sdk_read_wrappers_use_only_internal_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+    wrapper_name: str,
+    method_name: str,
+) -> None:
+    calls: list[str] = []
+
+    def fake_read(name: str) -> list[str]:
+        calls.append(name)
+        return [name]
+
+    monkeypatch.setattr(lb_sdk, "_call_trade_read", fake_read)
+    assert getattr(lb_sdk, wrapper_name)() == [method_name]
+    assert calls == [method_name]
+
+
+@pytest.mark.parametrize("method_name", ["submit_order", "cancel_order", "replace_order"])
+def test_lb_sdk_internal_read_helper_blocks_write_methods_before_external_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+) -> None:
+    original_import = builtins.__import__
+
+    def guarded_import(name: str, *args, **kwargs):
+        if name == "longbridge" or name.startswith("longbridge."):
+            raise AssertionError("Longbridge SDK import was reached")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(lb_sdk, "_config", _boom)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    with pytest.raises(LegacyBrokerWriteBlocked) as caught:
+        lb_sdk._call_trade_read(method_name)
     assert caught.value.exit_code == LEGACY_BROKER_WRITE_EXIT == 20
 
 
@@ -447,14 +494,48 @@ def block_execute_tokens(tokens: Sequence[str], operation: str) -> None:
         block_legacy_broker_write(operation)
 ```
 
-- [ ] **Step 4: Replace direct module write functions with immediate guards**
+- [ ] **Step 4: Replace direct writes and unrestricted TradeContext factories**
 
-In `quant/broker/lb_sdk.py`, import the guard near the top and replace the complete `submit_order()` body with:
+In `quant/broker/lb_sdk.py`, add this import immediately after `from pathlib import Path`:
 
 ```python
 from quant.broker.legacy_guard import block_legacy_broker_write
+```
+
+Delete the complete public `trade_context()` function and replace the current `account_balance()`、`positions()`、`today_orders()` definitions with this private exact allowlist and three value-returning wrappers:
+
+```python
+_ALLOWED_TRADE_READ_METHODS = frozenset(
+    {"account_balance", "stock_positions", "today_orders"}
+)
 
 
+def _call_trade_read(method_name: str) -> list:
+    if method_name not in _ALLOWED_TRADE_READ_METHODS:
+        block_legacy_broker_write(f"quant.broker.lb_sdk.{method_name}")
+    from longbridge.openapi import TradeContext
+
+    context = TradeContext(_config())
+    return getattr(context, method_name)()
+
+
+def account_balance() -> list:
+    return _call_trade_read("account_balance")
+
+
+def positions() -> list:
+    return _call_trade_read("stock_positions")
+
+
+def today_orders() -> list:
+    return _call_trade_read("today_orders")
+```
+
+Delete the complete public `paper_config()` function. Task 3 removes its two remaining imports from `lb_order_map.py` and `lb_rebalance.py` in the same P0-B commit, so do not create an intermediate commit. Keep `credential_status()`、`_config()` and the read-only `quote_context()` compatibility entry unchanged.
+
+Then replace the complete `submit_order()` body with:
+
+```python
 def submit_order(
     symbol: str,
     side: str,
@@ -468,7 +549,7 @@ def submit_order(
     block_legacy_broker_write("quant.broker.lb_sdk.submit_order")
 ```
 
-Delete the old `SubmitOrderOptions` construction loop. Do not call `load_env()`, `_config()` or `trade_context()` from this function.
+Delete the old `SubmitOrderOptions` construction loop. Do not call `load_env()`、`_config()`、`_call_trade_read()` or any SDK factory from this function.
 
 In `quant/broker/lb_bridge.py`, import the same guard and replace the two complete functions with:
 
@@ -499,16 +580,16 @@ def order_sell(
 Before changing code below, replace the entire module docstrings (from the first `"""` through the closing `"""` before `from __future__`) so they no longer advertise a usable legacy write channel. In `quant/broker/lb_sdk.py`, use this complete replacement:
 
 ```python
-"""Longbridge Legacy SDK 兼容模块（只读函数保留；写入入口已永久阻断）。
+"""Longbridge Legacy SDK 兼容模块。
 
-`submit_order()` 仅抛出 `LegacyBrokerWriteBlocked(exit_code=20)`；本模块不再是交易通道，也不提供解锁方式。账户/报价读取函数只供历史兼容测试使用，canonical automation 不得导入本模块。
+交易侧仅保留返回数据的只读 wrapper；行情侧暂保留 `quote_context()` 兼容入口。本模块不导出 `TradeContext`/paper `Config` factory；`submit_order()` 及任何非 allowlist trade method 都在读取凭证或导入 SDK 前抛出 `LegacyBrokerWriteBlocked(exit_code=20)`。canonical automation 不得导入本模块。
 """
 ```
 
 In `quant/broker/lb_bridge.py`, use this complete replacement:
 
 ```python
-"""Longbridge CLI Legacy 兼容模块（只读函数保留；任何 order buy/sell 写入已永久阻断）。
+"""Longbridge CLI Legacy 兼容模块（只读函数保留；broker 写命令已永久阻断）。
 
 `_run()` 只允许历史只读查询（`quote`、`positions`、`assets`、`order` 列表等）；`order buy/sell/cancel/replace` 命令以及所有 execute token 在启动 CLI 前返回 `BLOCKED_LEGACY_EXECUTE`。canonical automation 不得调用本模块。
 """
@@ -545,7 +626,7 @@ Run:
 python -m pytest tests/test_legacy_execute_killswitch.py -q
 ```
 
-Expected: exit 0；`12 passed`；no `.env` read、SDK import/context or subprocess is reached by a write path。
+Expected: exit 0；`19 passed`；no `.env` read、SDK import/context or subprocess is reached by a write path；no unrestricted `TradeContext` or paper `Config` object is publicly returned。
 
 P0-B 的 Task 2 与 Task 3 合并为同一个提交边界；不要在此处创建半成品 commit。完成 Step 8 的完整验证后，再按 Step 9 提交 P0-B。
 
@@ -680,6 +761,7 @@ def test_low_level_execute_tokens_block_before_subprocess(
         ["order", "buy", "AAPL.US", "1"],
         ["order", "sell", "AAPL.US", "1"],
         ["order", "cancel", "broker-order-id"],
+        ["order", "replace", "broker-order-id"],
     ],
 )
 def test_low_level_write_commands_block_before_subprocess(
@@ -940,7 +1022,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args.dry_run = True
 ```
 
-Leave the body beginning at `orders = cli_json(["order"]) or []` unchanged. Because `args.dry_run` is always true, its cancel branch cannot be reached from `main()`.
+Leave the body beginning at `orders = cli_json(["order"]) or []` unchanged. This local cancel-intent preview may only read the ordinary `order` list and calculate/display candidates in memory. Because `args.dry_run` is always true, its broker cancel branch cannot be reached from `main()`；it must never call `cli_json(["order", "cancel", ...])`.
 
 - [ ] **Step 7: Guard every low-level write-bearing helper**
 
@@ -1055,6 +1137,8 @@ def test_legacy_wrapper_returns_20_without_running_children(path: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert result.returncode == 20
     assert "BLOCKED_LEGACY_WRAPPER" in result.stderr + result.stdout

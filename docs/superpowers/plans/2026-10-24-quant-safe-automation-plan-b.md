@@ -16,7 +16,7 @@
 >
 > 已审核代码基线：`286e9bacfd6e5d080bee3f003be51b02d39dccc6`
 >
-> 批准起点：Git tag `plan-b-approved-20261024`
+> 批准起点：Git tag `plan-b-approved-20261024-v2`
 >
 > 初次授权范围：**只做 P0，提交后停止，等待 Codex 审核**
 >
@@ -32,7 +32,7 @@
 git status --short --branch
 git rev-parse HEAD
 git rev-parse origin/main
-git rev-parse "plan-b-approved-20261024^{commit}"
+git rev-parse "plan-b-approved-20261024-v2^{commit}"
 git diff --name-only 286e9bacfd6e5d080bee3f003be51b02d39dccc6..HEAD
 python --version
 python -m pytest -q
@@ -41,7 +41,7 @@ python -m pytest -q
 只有满足以下条件才能开工：
 
 1. 工作树干净。
-2. `HEAD == origin/main == plan-b-approved-20261024^{commit}`。
+2. `HEAD == origin/main == plan-b-approved-20261024-v2^{commit}`。
 3. `286e9ba..HEAD` 只有方案 B 文档和旧文档的 superseded 提示，没有代码改动。
 4. 基线全套测试通过；若依赖缺失，只报告准确错误，不使用 fallback 安装掩盖失败。
 
@@ -144,17 +144,17 @@ python -m pytest tests/test_repository_contracts.py -q
 
 **实现要求：**
 
-1. 上述旧 CLI 入口收到任何 execute/实际写入意图时，在网络、CLI、SDK context、行情或账户调用前返回退出码 20；必须覆盖 `--execute`、`--execute=...` 以及 argparse 可能接受的 `--e`/`--ex`/`--exec` 前缀。只读的 `order cancel` 预览查询可以保留用于历史审计，但带 execute token 的实际撤单必须被同一 guard 阻断。
+1. 上述旧 CLI 入口收到任何 execute/实际写入意图时，在网络、CLI、SDK context、行情或账户调用前返回退出码 20；必须覆盖 `--execute`、`--execute=...` 以及 argparse 可能接受的 `--e`/`--ex`/`--exec` 前缀。旧 `order buy/sell/cancel/replace` 命令无论是否带 execute token、是否声称仅作 preview 都必须被同一 guard 阻断；只允许普通 `order` 列表查询用于历史审计。
 2. `lb_order_map.py`、`lb_rebalance.py`、`lb_fix_hkd.py` 的 `--execute` 明确输出 `BLOCKED_LEGACY_EXECUTE`。
-3. `lb_reconcile.py` 默认只读 dry-run；旧 CLI cancel 路径不可达，任何请求写入都返回 20。
+3. `lb_reconcile.py` 默认只读 dry-run；它只能通过普通 `order` 列表在本地计算和显示 cancel-intent preview，旧 CLI cancel 路径不可达，任何请求写入都返回 20。
 4. 保留纯本地计划能力时，输出必须明确仅为 legacy preview，不得宣称 canonical plan。
 5. 不以 `LB_ACCOUNT_KIND=paper` 作为授权依据。
 6. 所有 parser 使用 `allow_abbrev=False`，同时在 parse 前检查原始 token、parse 后复核 `args.execute`；`lb_fix_hkd.py`、`lb_reconcile.py` 在导入 `quant.broker.legacy_guard` 前增加仓库根 `sys.path` bootstrap。
-7. 测试 monkeypatch `subprocess.run/Popen`、`load_env`、`_config`、`trade_context`、SDK import/factory 和 broker write，断言调用次数全部为 0；`order buy/sell/cancel/replace` 无论是否带 execute token 都必须在命令位被阻断，普通只读 `order` 列表仍可保留。
+7. 测试 monkeypatch `subprocess.run/Popen`、`load_env`、`_config`、SDK import/factory 和 broker write，断言写路径调用次数全部为 0；`order buy/sell/cancel/replace` 无论是否带 execute token 都必须在命令位被阻断，普通只读 `order` 列表及只基于该列表的本地 cancel-intent preview 仍可保留。
 8. 四个脚本必须用真实子进程分别验证 `--execute` 和 `--exec` 返回 20；测试把 `LOCALAPPDATA`、`LONGBRIDGE_BIN` 指向 `tmp_path` 下不存在的文件，证明不是外部 CLI “碰巧失败”。
 9. `lb_bridge._run([... , "--execute"])` 必须有直接测试，且在检查 CLI 路径或调用 subprocess 前阻断。
 10. kill-switch 必须可测试为函数或最早参数门禁，不能依赖真实 CLI 缺失而“碰巧失败”。
-11. `lb_sdk.submit_order()` 与 `lb_bridge.order_buy()/order_sell()` 必须在读取 `.env`、导入 Longbridge SDK、构造 context 或启动 subprocess 前抛出带 `exit_code=20` 的 `LegacyBrokerWriteBlocked`；所有读取函数保持不变。测试断言直接调用这三个旧写函数时外部调用计数为 0。
+11. `lb_sdk.submit_order()` 与 `lb_bridge.order_buy()/order_sell()` 必须在读取 `.env`、导入 Longbridge SDK、构造 context 或启动 subprocess 前抛出带 `exit_code=20` 的 `LegacyBrokerWriteBlocked`。删除 `lb_sdk.trade_context()`/`paper_config()` 两个公开 factory；`account_balance()`、`positions()`、`today_orders()` 只能通过私有精确 allowlist helper 返回查询结果且不得泄露 context，任何非 allowlist trade method 都必须在 `_config()` 或 SDK import 前阻断；只读 `quote_context()` 兼容入口暂时保留。测试覆盖 factory 不存在、三个只读 wrapper 的精确映射及 submit/cancel/replace 绕过阻断。
 
 **验证：**
 
@@ -724,7 +724,7 @@ git status --short --branch
 用户只需让 DeepSeek 完整读取本总路线图、对应权威设计和 P0 逐步施工单，并发送以下指令：
 
 ```text
-从 tag plan-b-approved-20261024 开始，严格执行任务书第 0 节预检。
+从 tag plan-b-approved-20261024-v2 开始，严格执行任务书第 0 节预检。
 完整读取 docs/superpowers/plans/2026-10-24-quant-safe-automation-plan-b-p0.md。
 本轮只按该施工单实施 P0-A、P0-B、P0-C；每个任务独立提交并完成固定验证。
 只能人工读取施工单列出的 P0 精确 allowlist；禁止递归枚举/搜索整仓、git grep、docs/journal/**、其他分析/报告和 Git 历史/blob。
