@@ -138,6 +138,21 @@ def quotes(symbols: list[str]) -> dict[str, dict]:
 
 
 def sleeve_targets(market: str, top_k: int, suffix: str) -> dict[str, float]:
+    # 目标快照：同一调仓周期内复用冻结目标，非调仓日不重选股
+    _snap_path = Path(__file__).resolve().parents[1] / "state" / "target_snapshot.json"
+    try:
+        if _snap_path.exists():
+            _snap = json.loads(_snap_path.read_text(encoding="utf-8"))
+            _sleeve = (_snap.get("sleeves") or {}).get(market)
+            if _sleeve and _sleeve.get("weights"):
+                import datetime as _dt
+                _nxt = _dt.date.fromisoformat(_sleeve["next_rebalance_date"])
+                if _dt.date.today() <= _nxt:
+                    print(f"[snapshot] {market} 使用冻结目标（rebalance {_sleeve['rebalance_date']}，next {_nxt}）")
+                    return {k2: float(v) for k2, v in _sleeve["weights"].items()}
+                print(f"[snapshot] {market} 快照过期（next {_nxt}），重新计算")
+    except Exception as _exc:  # noqa: BLE001
+        print(f"[snapshot] 读取失败，回退计算: {str(_exc)[:80]}")
     panel = Panel.load(index_code=None, market=market)
     cfg = BacktestConfig.for_market(market, top_k=top_k, rebalance_days=20)
     strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS["momentum"], warmup=130)

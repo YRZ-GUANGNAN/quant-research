@@ -1,0 +1,60 @@
+{
+  "sleeves": {
+    "us": {
+      "market": "us",
+      "model_version": "abec98e3",
+      "data_version": "2026-10-23",
+      "rebalance_days": 20,
+      "rebalance_date": "2026-10-23",
+      "next_rebalance_date": "2026-11-20",
+      "weights": {
+        "ACN.US": 0.049,
+        "CRM.US": 0.049,
+        "CVX.US": 0.049,
+        "TSLA.US": 0.049,
+        "META.US": 0.049,
+        "DHR.US": 0.049,
+        "XOM.US": 0.049,
+        "TMO.US": 0.049,
+        "QCOM.US": 0.049,
+        "MSFT.US": 0.049,
+        "PG.US": 0.049,
+        "MRK.US": 0.049,
+        "ABBV.US": 0.049,
+        "V.US": 0.049,
+        "LLY.US": 0.049,
+        "SPGI.US": 0.049,
+        "NVDA.US": 0.049,
+        "MA.US": 0.049,
+        "WMT.US": 0.049,
+        "DE.US": 0.049
+      }
+    },
+    "hk": {
+      "market": "hk",
+      "model_version": "abec98e3",
+      "data_version": "2026-10-23",
+      "rebalance_days": 20,
+      "rebalance_date": "2026-10-23",
+      "next_rebalance_date": "2026-11-20",
+      "weights": {
+        "2269.HK": 0.065333,
+        "3988.HK": 0.065333,
+        "0939.HK": 0.065333,
+        "0386.HK": 0.065333,
+        "0006.HK": 0.065333,
+        "2382.HK": 0.065333,
+        "0883.HK": 0.065333,
+        "3968.HK": 0.065333,
+        "0003.HK": 0.065333,
+        "0322.HK": 0.065333,
+        "0316.HK": 0.065333,
+        "1209.HK": 0.065333,
+        "0857.HK": 0.065333,
+        "0669.HK": 0.065333,
+        "3692.HK": 0.065333
+      }
+    }
+  },
+  "generated_at": "2026-10-24"
+}
