@@ -1,4 +1,4 @@
-# 每日收盘后自动化流程（本地 + 券商模拟盘）
+﻿# 每日收盘后自动化流程（本地 + 券商模拟盘）
 # 用法: powershell -ExecutionPolicy Bypass -File scripts\daily_run.ps1
 $ErrorActionPreference = "Continue"
 Set-Location "D:\3314\quant-research"
