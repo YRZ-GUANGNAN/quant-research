@@ -11,7 +11,14 @@ $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"  # 代码级护栏：仅允许模拟账户下单
 
 Write-Host "=== 1/5 更新 A 股行情（腾讯，失败则跳过）==="
-Run-Step "fetch_tx" { python scripts/fetch_tx.py --workers 8 }
+$script:failures = 0
+python scripts/fetch_tx.py --workers 8
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[retry] 腾讯限流，60 秒后降并发重试（workers=2）"
+    Start-Sleep -Seconds 60
+    python scripts/fetch_tx.py --workers 2
+}
+if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] fetch_tx 两次均失败，后续门禁会阻断下单" }
 
 Write-Host "=== 2/5 BaoStock 备用增量补齐 ==="
 Run-Step "fetch_baostock" { python scripts/fetch_baostock_fallback.py }
