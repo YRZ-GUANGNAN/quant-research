@@ -51,7 +51,11 @@ def main() -> int:
 
     orders = [o for o in (cli_json(["order"]) or []) if isinstance(o, dict)]
     if not orders:
-        print("[report] 今日无订单")
+        md = f"# 券商模拟盘日度对照 · {args.date}\n\n- 今日无订单（休市或被门控跳过）\n"
+        reports = ROOT / "reports"
+        reports.mkdir(exist_ok=True)
+        (reports / f"broker_daily_{args.date}.md").write_text(md, encoding="utf-8")
+        print("[report] 今日无订单，已写入空报告")
         return 0
 
     agg: dict[str, dict] = defaultdict(lambda: {
