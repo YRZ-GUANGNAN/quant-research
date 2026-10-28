@@ -27,15 +27,15 @@ Write-Host "=== 3/9 更新美股/港股行情（Yahoo）==="
 Run-Step "fetch_us" { python scripts/fetch_market.py --market us }
 Run-Step "fetch_hk" { python scripts/fetch_market.py --market hk }
 
+Write-Host "=== 3b/9 数据门禁（不通过则禁止推进账户与下单）==="
+python scripts/pre_trade_gate.py
+if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] 数据门禁未通过：不推进账户、不下单"; exit 1 }
+
 Write-Host "=== 4/9 本地 A 股模拟盘推进 ==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 
 Write-Host "=== 6/9 目标快照（周期内复用）==="
 Run-Step "snapshot" { python scripts/build_target_snapshot.py }
-
-Write-Host "=== 7/9 数据门禁（不通过则禁止下单）==="
-python scripts/pre_trade_gate.py
-if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] 数据门禁未通过，禁止进入下单步骤"; exit 1 }
 
 Write-Host "=== 8/9 券商模拟盘：建仓 + 再平衡 ==="
 Run-Step "paper_live" { python scripts/paper_live.py }
