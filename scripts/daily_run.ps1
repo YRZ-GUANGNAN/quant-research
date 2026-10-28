@@ -30,9 +30,6 @@ Run-Step "fetch_hk" { python scripts/fetch_market.py --market hk }
 Write-Host "=== 4/9 本地 A 股模拟盘推进 ==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 
-Write-Host "=== 5/9 实时报价执行本地挂单 ==="
-Run-Step "paper_live" { python scripts/paper_live.py }
-
 Write-Host "=== 6/9 目标快照（周期内复用）==="
 Run-Step "snapshot" { python scripts/build_target_snapshot.py }
 
@@ -41,6 +38,9 @@ python scripts/pre_trade_gate.py
 if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] 数据门禁未通过，禁止进入下单步骤"; exit 1 }
 
 Write-Host "=== 8/9 券商模拟盘：建仓 + 再平衡 ==="
+Run-Step "paper_live" { python scripts/paper_live.py }
+
+
 Run-Step "order_map" { python scripts/lb_order_map.py --skip-existing --only both --execute }
 Run-Step "rebalance_hk" { python scripts/lb_rebalance.py --market hk --execute }
 
