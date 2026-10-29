@@ -1,17 +1,6 @@
-"""Longbridge CLI 桥接：认证状态、行情、账户、下单。
+"""Longbridge CLI Legacy 兼容模块（只读函数保留；broker 写命令已永久阻断）。
 
-设计选择：走官方 CLI（`longbridge` v0.30.0）而不是 Python SDK。
-原因：
-1. 认证用 OAuth，token 由 CLI 管理在 `~/.longbridge/openapi/tokens/`，
-   我们的代码永远不接触 token 文件（安全边界清晰）；
-2. CLI 输出 `--format json`，适合被脚本调用；
-3. 换机器/换账号只需重新 `longbridge auth login`，代码零改动。
-
-安装（已在本机完成）：`%LOCALAPPDATA%\\Programs\\longbridge\\longbridge.exe`
-
-用法：
-    python scripts/lb_check.py            # 认证状态 + 账户概览
-    python scripts/lb_check.py --quote 0700.HK,AAPL.US
+`_run()` 只允许历史只读查询（`quote`、`positions`、`assets`、`order` 列表等）；`order buy/sell/cancel/replace` 命令以及所有 execute token 在启动 CLI 前返回 `BLOCKED_LEGACY_EXECUTE`。canonical automation 不得调用本模块。
 """
 
 from __future__ import annotations
@@ -20,6 +9,8 @@ import json
 import os
 import subprocess
 from pathlib import Path
+
+from quant.broker.legacy_guard import assert_legacy_cli_readonly, block_legacy_broker_write
 
 DEFAULT_BIN = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "longbridge.exe"
 LB_BIN = Path(os.environ.get("LONGBRIDGE_BIN", str(DEFAULT_BIN)))
@@ -30,6 +21,7 @@ class LongbridgeError(RuntimeError):
 
 
 def _run(args: list[str], *, timeout: int = 40) -> str:
+    assert_legacy_cli_readonly(args, "quant.broker.lb_bridge._run")
     if not LB_BIN.exists():
         raise LongbridgeError(f"未找到 longbridge CLI: {LB_BIN}")
     cmd = [str(LB_BIN), *args, "--format", "json"]
@@ -81,21 +73,24 @@ def order_list(history: bool = False) -> list:
     return _json(args) or []
 
 
-def order_buy(symbol: str, quantity: int, price: float | None = None,
-              order_type: str = "MO") -> dict:
-    """买入。order_type: MO=市价单，LO=限价单（需 price）。"""
-    args = ["order", "buy", symbol, "--quantity", str(quantity), "--order-type", order_type]
-    if price is not None:
-        args += ["--price", f"{price:.4f}"]
-    return _json(args)
+def order_buy(
+    symbol: str,
+    quantity: int,
+    price: float | None = None,
+    order_type: str = "MO",
+) -> dict:
+    del symbol, quantity, price, order_type
+    block_legacy_broker_write("quant.broker.lb_bridge.order_buy")
 
 
-def order_sell(symbol: str, quantity: int, price: float | None = None,
-               order_type: str = "MO") -> dict:
-    args = ["order", "sell", symbol, "--quantity", str(quantity), "--order-type", order_type]
-    if price is not None:
-        args += ["--price", f"{price:.4f}"]
-    return _json(args)
+def order_sell(
+    symbol: str,
+    quantity: int,
+    price: float | None = None,
+    order_type: str = "MO",
+) -> dict:
+    del symbol, quantity, price, order_type
+    block_legacy_broker_write("quant.broker.lb_bridge.order_sell")
 
 
 def region() -> str:

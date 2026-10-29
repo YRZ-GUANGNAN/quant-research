@@ -20,6 +20,8 @@ import math
 import os
 import subprocess
 import sys
+
+from quant.broker.legacy_guard import reject_execute_argv
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -234,7 +236,12 @@ def submit(plan: list[dict], dry_run: bool) -> list[dict]:
     return results
 
 
-def main() -> int:
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    _rc = reject_execute_argv(argv)
+    if _rc is not None:
+        return _rc
     ap = argparse.ArgumentParser(description="模型 v4 美港股 → 券商模拟盘下单")
     ap.add_argument("--execute", action="store_true", help="真正提交（默认 dry-run，安全优先）")
     ap.add_argument("--dry-run", action="store_true", help="兼容旧参数")
@@ -242,7 +249,7 @@ def main() -> int:
     ap.add_argument("--us-weight", type=float, default=0.75)
     ap.add_argument("--only", choices=["us", "hk", "sg", "both"], default="both")
     ap.add_argument("--skip-existing", action="store_true", help="跳过今日已有订单的标的")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     args.dry_run = not args.execute
     if args.execute:
         if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):

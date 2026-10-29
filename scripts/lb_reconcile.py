@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 import sys
+
+from quant.broker.legacy_guard import reject_execute_argv
 from collections import defaultdict
 from pathlib import Path
 
@@ -39,10 +41,15 @@ def cli_json(args: list[str]) -> object:
         raise
 
 
-def main() -> int:
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    _rc = reject_execute_argv(argv)
+    if _rc is not None:
+        return _rc
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     orders = cli_json(["order"]) or []
     by_symbol: dict[str, list[dict]] = defaultdict(list)

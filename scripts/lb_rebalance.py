@@ -10,6 +10,10 @@
     python scripts/lb_rebalance.py --market us --execute
 """
 from __future__ import annotations
+
+import sys
+
+from quant.broker.legacy_guard import reject_execute_argv
 import argparse, json, os, sys
 from pathlib import Path
 
@@ -37,12 +41,17 @@ def cash_of(ccy: str) -> float:
     return 0.0
 
 
-def main() -> int:
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    _rc = reject_execute_argv(argv)
+    if _rc is not None:
+        return _rc
     ap = argparse.ArgumentParser()
     ap.add_argument("--market", choices=["us", "hk"], required=True)
     ap.add_argument("--execute", action="store_true")
     ap.add_argument("--threshold", type=float, default=0.15)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     # 代码级护栏：执行真实下单前必须显式声明这是模拟账户（防止登录账号被换成实盘）
     if args.execute:
         if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):

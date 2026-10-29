@@ -9,6 +9,10 @@
     python scripts/lb_fix_hkd.py --execute --target-buffer 0.05
 """
 from __future__ import annotations
+
+import sys
+
+from quant.broker.legacy_guard import reject_execute_argv
 import argparse, json, os, subprocess, sys
 from pathlib import Path
 
@@ -49,11 +53,16 @@ def hkd_cash() -> float:
     return 0.0
 
 
-def main() -> int:
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    _rc = reject_execute_argv(argv)
+    if _rc is not None:
+        return _rc
     ap = argparse.ArgumentParser()
     ap.add_argument("--execute", action="store_true", help="真正卖出（默认 dry-run）")
     ap.add_argument("--target-buffer", type=float, default=0.05)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     cash = hkd_cash()
     print(f"[hkd] 当前可用现金 {cash:,.2f} HKD")
