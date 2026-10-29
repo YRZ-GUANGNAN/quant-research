@@ -16,6 +16,9 @@ import os
 import subprocess
 import sys
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 from quant.broker.legacy_guard import reject_execute_argv
 from collections import defaultdict
 from pathlib import Path

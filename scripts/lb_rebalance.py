@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import sys
 
-from quant.broker.legacy_guard import reject_execute_argv
 import argparse, json, os, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
+from quant.broker.legacy_guard import reject_execute_argv
 from lb_order_map import (cli_json, lot_sizes, market_sessions, net_assets_usd,
                           quotes, sleeve_targets, USD_HKD)  # noqa
 

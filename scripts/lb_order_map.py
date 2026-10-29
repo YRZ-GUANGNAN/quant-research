@@ -21,10 +21,10 @@ import os
 import subprocess
 import sys
 
-from quant.broker.legacy_guard import reject_execute_argv
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from quant.broker.legacy_guard import reject_execute_argv
 
 from quant.config import BacktestConfig  # noqa: E402
 from quant.data.panel import Panel  # noqa: E402

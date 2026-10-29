@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import sys
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 from quant.broker.legacy_guard import reject_execute_argv
 import argparse, json, os, subprocess, sys
 from pathlib import Path
