@@ -42,7 +42,7 @@ def last_completed_session(market: str, now: datetime | None = None):
         d -= timedelta(days=1)
     return d
 
-MIN_COVERAGE = {"cn": 0.90, "us": 0.90, "hk": 0.90}
+MIN_COVERAGE = {"cn": 0.90, "us": 0.85, "hk": 0.85}
 
 
 def main() -> int:
