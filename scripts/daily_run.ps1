@@ -20,7 +20,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] fetch_tx 两次均失败，门禁将阻断下单" }
 
-Write-Host "=== 2/9 BaoStock 备用增量补齐 ==="
+Write-Host "=== 2/9 东方财富兜底（补腾讯缺口）==="
+Run-Step "fetch_eastmoney" { python scripts/fetch_eastmoney_fallback.py }
+
+Write-Host "=== 2b/9 BaoStock 最后兜底 ==="
 Run-Step "fetch_baostock" { python scripts/fetch_baostock_fallback.py }
 
 Write-Host "=== 3/9 更新美股/港股行情（Yahoo）==="
