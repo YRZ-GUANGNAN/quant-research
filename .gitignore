@@ -2,25 +2,19 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-
 # 数据缓存（体积大，可随时重新抓取；保留 data/README.md 说明）
-data/cache/
+/data/cache/
 data/raw/
-
 # 模拟盘账户状态与运行日志
 .paper/
 *.log
-
 # 报告图表（可复现生成）
 reports/*.png
 reports/*.csv
-
 .env
 .DS_Store
 Thumbs.db
-state/
-logs/
-reports/
-snapshots/
-.env
-data/cache/
+/state/
+/logs/
+/reports/
+/snapshots/
