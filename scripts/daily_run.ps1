@@ -68,6 +68,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "=== 8e/9 业绩归因 ==="
 Run-Step "attribution" { python scripts/attribution.py }
+Run-Step "track_actions" { python scripts/track_actions.py }
 
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }

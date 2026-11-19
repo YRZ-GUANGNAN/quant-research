@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from quant.automation.reconcile import record_expected
+from quant.automation.action_log import log_actions
 from quant.automation.health import de_risk_from_health
 from quant.automation.replace import (drawdown_from_nav, momentum_candidates,
                                       pick_replacements, record_nav)
@@ -184,6 +185,13 @@ def main() -> int:
         print("[risk-act] 无可用替换候选（目标池已满仓且动量备选不足）")
     print(f"[risk-act] {args.market}: 持仓 {len(plist)} 只 | 市值 {equity:,.0f} | 浮盈亏 {drawdown:+.2%}")
     print(summarize(actions))
+
+    # 台账：记录本轮所有动作（含 dry-run），便于日后回看效果
+    price_map = {sym: float((q or {}).get("last") or 0) for sym, q in quotes.items()}
+    if actions:
+        n = log_actions(args.market, actions, prices=price_map)
+        if n:
+            print(f"[risk-act] 动作已记入台账：{n} 条")
 
     planned = to_orders(actions, positions, quotes, Limits())
     if planned and args.execute:

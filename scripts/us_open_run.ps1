@@ -42,4 +42,5 @@ python scripts/attribution.py
 
 Write-Host "=== 4/4 日度报告 + 绩效面板 ==="
 python scripts/lb_daily_report.py
+python scripts/track_actions.py
 python scripts/dashboard.py

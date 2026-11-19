@@ -1,4 +1,4 @@
-﻿"""一页式绩效面板：净值 / 归因 / 风控动作 / 健康 / 对账 → Markdown。
+"""一页式绩效面板：净值 / 归因 / 风控动作 / 健康 / 对账 → Markdown。
 
 用法：python scripts/dashboard.py [--date YYYY-MM-DD]
 输出：reports/dashboard_<date>.md（可直接贴给他人看）
@@ -120,6 +120,21 @@ def build(day: str) -> str:
             lines.append(f"  - 异常：{line['symbol']} {line['side']} 期望 {line['expected_qty']} 成交 {line['executed_qty']}")
     if not any_rec:
         lines.append("- 今日无对账记录（未真实下单时属正常）")
+    lines.append("")
+
+    # 6) 风险动作效果
+    track = _load(f"action_tracking_{day}.json")
+    lines += ["## 6. 风险动作效果", ""]
+    if track:
+        lines.append(f"- 可评估 {track.get('total', 0)} 条 | 有效 {track.get('good', 0)} / "
+                     f"无效 {track.get('bad', 0)} | 命中率 {track.get('hit_rate', 0):.0%}")
+        for row in (track.get("rows") or [])[-5:]:
+            repl = (f"，替换 {row['replace_with']} {row['replace_change']:+.1%}"
+                    if row.get("replace_change") is not None else "")
+            lines.append(f"  - {row['date']} {row['symbol']} {row['action']}："
+                         f"{row['change']:+.1%}（{row['verdict']}）{repl}")
+    else:
+        lines.append("- 暂无追踪数据（运行 `python scripts/track_actions.py`）")
     lines.append("")
 
     lines += ["---", "",
