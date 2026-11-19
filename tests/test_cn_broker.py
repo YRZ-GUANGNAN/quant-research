@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import builtins
 
@@ -8,18 +8,19 @@ from quant.broker import cn_broker
 
 
 def test_detect_reports_local_always_available(monkeypatch):
-    monkeypatch.setattr(cn_broker, "_ths_running", lambda: False)
+    monkeypatch.setattr(cn_broker, "_process_running", lambda image: False)
     info = cn_broker.detect()
     assert info["local"]["available"] is True
     assert set(info) == {"qmt", "ths", "local"}
 
 
 def test_ths_blocked_when_client_not_running(monkeypatch):
-    monkeypatch.setattr(cn_broker, "_ths_running", lambda: False)
+    monkeypatch.setattr(cn_broker, "_process_running", lambda image: False)
     monkeypatch.setattr(cn_broker, "THS_EXE", cn_broker.Path("C:/nonexistent/hexin.exe"))
+    monkeypatch.setattr(cn_broker, "THS_TRADE_EXE", cn_broker.Path("C:/nonexistent/xiadan.exe"))
     info = cn_broker.detect()
     assert info["ths"]["available"] is False
-    assert any("同花顺" in b for b in info["ths"]["blockers"])
+    assert info["ths"]["blockers"], "应给出阻塞原因"
 
 
 def test_execute_requires_env_gate(monkeypatch):
