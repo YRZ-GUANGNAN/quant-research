@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from quant.automation.reconcile import record_expected
 from quant.automation.replace import (drawdown_from_nav, momentum_candidates,
                                       pick_replacements, record_nav)
 from quant.automation.risk_execute import Limits, execute, to_orders
@@ -171,6 +172,9 @@ def main() -> int:
     print(f"[risk-act] {args.market}: 持仓 {len(plist)} 只 | 市值 {equity:,.0f} | 浮盈亏 {drawdown:+.2%}")
     print(summarize(actions))
 
+    planned = to_orders(actions, positions, quotes, Limits())
+    if planned:
+        record_expected(args.market, [{"symbol": o.symbol, "side": o.side, "qty": o.qty} for o in planned])
     result = execute(actions, market=args.market, dry_run=not args.execute,
                      positions=positions, quotes=quotes, limits=Limits())
     print(json.dumps(result, ensure_ascii=False, indent=2)[:2000])

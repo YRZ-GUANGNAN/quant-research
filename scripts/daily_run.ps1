@@ -57,6 +57,9 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
     Run-Step "risk_act_hk_exec" { python scripts/risk_act.py --market hk --execute }
 }
 
+Write-Host "=== 8c/9 执行对账（港股）==="
+Run-Step "reconcile_hk" { python scripts/reconcile_today.py --market hk }
+
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }

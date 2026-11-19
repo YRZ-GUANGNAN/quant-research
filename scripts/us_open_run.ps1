@@ -5,6 +5,11 @@ Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
 $env:LB_ALLOW_EXECUTION = "1"
+$script:failures = 0
+function Run-StepLocal([string]$desc, [scriptblock]$cmd) {
+    & $cmd
+    if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] $desc (exit $LASTEXITCODE)" }
+}
 
 Write-Host "=== 1/4 更新美股行情（Yahoo）==="
 python scripts/fetch_market.py --market us
@@ -24,6 +29,9 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
     Write-Host "[warn] 风控动作真实执行已开启（美股）"
     python scripts/risk_act.py --market us --execute
 }
+
+Write-Host "=== 3d/5 执行对账（期望 vs 实际）==="
+Run-StepLocal "reconcile_us" { python scripts/reconcile_today.py --market us }
 
 Write-Host "=== 4/4 更新日度报告 ==="
 python scripts/lb_daily_report.py
