@@ -6,10 +6,27 @@ $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
 $env:LB_ALLOW_EXECUTION = "1"  # 受控执行通道（policy + ledger 保护）
 
+$logDir = Join-Path (Get-Location) "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$logPath = Join-Path $logDir "daily_run_$stamp.log"
+try { Start-Transcript -Path $logPath -Append | Out-Null } catch { Write-Host "[warn] 日志转录开启失败: $($_.Exception.Message)" }
+Get-ChildItem $logDir -Filter "daily_run_*.log" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
+
 $script:failures = 0
+$script:failedSteps = @()
 function Run-Step([string]$desc, [scriptblock]$cmd) {
+    $t0 = Get-Date
     & $cmd
-    if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] $desc (exit $LASTEXITCODE)" }
+    $code = $LASTEXITCODE
+    $ms = [int]((Get-Date) - $t0).TotalMilliseconds
+    if ($code -ne 0) {
+        $script:failures++
+        $script:failedSteps += $desc
+        Write-Host ("[{0}] [FAIL] {1} (exit {2}, {3}ms)" -f (Get-Date -Format "HH:mm:ss"), $desc, $code, $ms)
+    } else {
+        Write-Host ("[{0}] [ok] {1} ({2}ms)" -f (Get-Date -Format "HH:mm:ss"), $desc, $ms)
+    }
 }
 
 Write-Host "=== 1/9 更新 A 股行情（腾讯；限流自动降并发重试）==="
@@ -19,7 +36,7 @@ if ($LASTEXITCODE -ne 0) {
     Start-Sleep -Seconds 60
     python scripts/fetch_tx.py --workers 2
 }
-if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] fetch_tx 两次均失败，门禁将阻断下单" }
+if ($LASTEXITCODE -ne 0) { $script:failures++; $script:failedSteps += "fetch_tx"; Write-Host "[FAIL] fetch_tx 两次均失败，门禁将阻断下单" }
 
 Write-Host "=== 2/9 东方财富兜底（补腾讯缺口）==="
 Run-Step "fetch_eastmoney" { python scripts/fetch_eastmoney_fallback.py }
@@ -73,6 +90,17 @@ Run-Step "track_actions" { python scripts/track_actions.py }
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }
+Write-Host "=== 9b/9 自动化看门狗（缺产物/任务没跑会告警）==="
+python scripts/automation_watchdog.py
+if ($LASTEXITCODE -eq 1) { Write-Host "[warn] 看门狗报异常，见 reports/automation_health_*.json 与 state/ALERT.json" }
 
-if ($script:failures -gt 0) { Write-Host "[RESULT] $script:failures 步失败"; exit 1 }
+if ($script:failures -gt 0) {
+    Write-Host ("[RESULT] {0} 步失败: {1}" -f $script:failures, ($script:failedSteps -join ", "))
+    Write-Host "[LOG] $logPath"
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
 Write-Host "[RESULT] 全部步骤成功"
+Write-Host "[LOG] $logPath"
+try { Stop-Transcript | Out-Null } catch { }
+exit 0

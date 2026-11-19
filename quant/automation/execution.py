@@ -269,7 +269,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
         sess = market_sessions()
         mkt = "US" if market in ("us", "cn_proxy") else "HK"
         if sess.get(mkt) != "Trading":
-            return {"ok": False,
+            return {"ok": False, "blocked": True,
                     "reason": f"{mkt} 当前 {sess.get(mkt, 'UNKNOWN')}，非交易时段不提交",
                     "orders": []}
 
@@ -287,7 +287,8 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
     try:
         ledger.bind_plan(key=key, plan_id=f"{market}-{plan['snapshot_rebalance_date']}")
     except AlreadyBound:
-        return {"ok": False, "reason": "该快照/交易日已提交过（一次消费）", "orders": []}
+        return {"ok": False, "blocked": True,
+                "reason": "该快照/交易日已提交过（一次消费），本交易日不再重复下单", "orders": []}
 
     results = []
     for item in plan["orders"]:
@@ -323,6 +324,9 @@ def main(argv: list[str] | None = None) -> int:
 
     result = execute(args.market, dry_run=not args.execute, cash_share=args.cash_share)
     print(json.dumps(result, ensure_ascii=False, indent=2)[:4000])
+    if result.get("blocked"):
+        # 非交易时段 / 本日已消费：预期内的跳过，不算失败（自动化里 exit 1 只留给真故障）
+        return 3
     ok = result.get("ok") and not any(str(r.get("status", "")).startswith(("error", "unknown"))
                                       for r in result.get("results", []))
     return 0 if ok else 1

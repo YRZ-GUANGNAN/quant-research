@@ -1,43 +1,86 @@
-﻿# A 股开盘任务（工作日 09:35）：数据门禁 → 通道体检 → 实盘风险报告
+﻿param(
+    [switch]$NoExecute   # 冒烟测试用：强制关闭真实下单
+)
+
+# A 股开盘任务（工作日 09:35）：数据门禁 → 通道体检 → 真实再平衡（受限额保护）
+# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\cn_open_run.ps1
 $ErrorActionPreference = "Continue"
+
 Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
-# $env:CN_ALLOW_EXECUTION = "1"   # 解除注释才允许真实 A 股下单
+$env:CN_ALLOW_EXECUTION = "1"
+if ($NoExecute) { $env:CN_ALLOW_EXECUTION = "0" }      # 真实下单总开关（另有单笔/单日/单票/整手/现金多重限额）
+# $env:RISK_ALLOW_EXECUTION = "1"  # 风控动作走 Longbridge，A 股不适用；A 股靠目标再平衡做减仓/清仓
+
+$logDir = Join-Path (Get-Location) "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logPath = Join-Path $logDir ("cn_open_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".log")
+try { Start-Transcript -Path $logPath -Append | Out-Null } catch { Write-Host "[warn] 日志转录开启失败: $($_.Exception.Message)" }
+Get-ChildItem $logDir -Filter "cn_open_*.log" | Sort-Object LastWriteTime -Descending |
+    Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $script:failures = 0
+$script:failedSteps = @()
 function Run-Step([string]$desc, [scriptblock]$cmd) {
+    $t0 = Get-Date
     & $cmd
-    if ($LASTEXITCODE -ne 0) { $script:failures++; Write-Host "[FAIL] $desc (exit $LASTEXITCODE)" }
+    $code = $LASTEXITCODE
+    $ms = [int]((Get-Date) - $t0).TotalMilliseconds
+    if ($code -eq 3) {
+        Write-Host ("[{0}] [skip] {1}（非交易时段或已提交，预期内）" -f (Get-Date -Format "HH:mm:ss"), $desc)
+        return
+    }
+    if ($code -ne 0) {
+        $script:failures++
+        $script:failedSteps += $desc
+        Write-Host ("[{0}] [FAIL] {1} (exit {2}, {3}ms)" -f (Get-Date -Format "HH:mm:ss"), $desc, $code, $ms)
+    } else {
+        Write-Host ("[{0}] [ok] {1} ({2}ms)" -f (Get-Date -Format "HH:mm:ss"), $desc, $ms)
+    }
 }
 
-Write-Host "=== 1/5 A 股数据门禁 ==="
+Write-Host "=== 1/7 A 股数据门禁 ==="
 python scripts/pre_trade_gate.py --markets cn
-if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] A 股数据未就绪，今日不交易"; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ABORT] A 股数据未就绪，今日不交易"
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
 
-Write-Host "=== 2/5 A 股交易通道状态 ==="
-python -m quant.broker.cn_broker --status
+Write-Host "=== 2/7 A 股交易通道状态 ==="
+Run-Step "channel" { python -m quant.broker.cn_broker --status }
 
-Write-Host "=== 3/5 实盘资金与风险体检 ==="
+Write-Host "=== 3/7 实盘资金与风险体检 ==="
 Run-Step "cn_risk" { python scripts/cn_risk_report.py }
 
-Write-Host "=== 3b/5 风险识别 → 动作（默认 dry-run）==="
+Write-Host "=== 3b/7 风控动作（本地计算，不下单；A 股减仓由目标再平衡完成）==="
 python scripts/risk_act.py --market cn
-if ($env:RISK_ALLOW_EXECUTION -eq "1" -and $env:CN_ALLOW_EXECUTION -eq "1") {
-    Write-Host "[warn] A 股风控动作真实执行已开启"
-    python scripts/risk_act.py --market cn --execute
-}
 
-Write-Host "=== 4/5 A 股本地引擎推进（信号侧）==="
+Write-Host "=== 4/7 A 股本地引擎推进（信号侧）==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 
-Write-Host "=== 5/5 受控真实下单（默认关闭；需 CN_ALLOW_EXECUTION=1）==="
+Write-Host "=== 5/7 生成实盘目标权重（模型共识前 N 只，小账户版）==="
+Run-Step "build_target" { python scripts/build_cn_target_live.py --top 6 --exposure 0.70 }
+
+Write-Host "=== 6/7 对照真实账户算单（dry-run，不下单）==="
+Run-Step "cn_preview" { python -m quant.broker.cn_broker --target state/cn_target_live.json }
+
+Write-Host "=== 7/7 真实再平衡（先卖后买，限额+T+1+幂等保护）==="
 if ($env:CN_ALLOW_EXECUTION -eq "1") {
-    Write-Host "[warn] 真实下单已开启"
-    python -m quant.broker.cn_broker --target state/cn_target_live.json --execute
+    Write-Host "[warn] A 股真实下单已开启（单笔<=10万，单日<=50万，单票<=30%，现金留底 3%）"
+    Run-Step "cn_execute" { python -m quant.broker.cn_broker --target state/cn_target_live.json --execute }
 } else {
-    Write-Host "[skip] 未设置 CN_ALLOW_EXECUTION=1，今日只做体检与信号，不真实下单"
+    Write-Host "[skip] CN_ALLOW_EXECUTION 未开，今日只做体检与信号"
 }
 
-if ($script:failures -gt 0) { Write-Host "[RESULT] $script:failures 步失败"; exit 1 }
+if ($script:failures -gt 0) {
+    Write-Host ("[RESULT] {0} 步失败: {1}" -f $script:failures, ($script:failedSteps -join ", "))
+    Write-Host "[LOG] $logPath"
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
 Write-Host "[RESULT] A 股开盘流程完成"
+Write-Host "[LOG] $logPath"
+try { Stop-Transcript | Out-Null } catch { }
+exit 0
