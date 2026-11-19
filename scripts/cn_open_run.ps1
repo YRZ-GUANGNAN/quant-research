@@ -21,6 +21,13 @@ python -m quant.broker.cn_broker --status
 Write-Host "=== 3/5 实盘资金与风险体检 ==="
 Run-Step "cn_risk" { python scripts/cn_risk_report.py }
 
+Write-Host "=== 3b/5 风险识别 → 动作（默认 dry-run）==="
+python scripts/risk_act.py --market cn
+if ($env:RISK_ALLOW_EXECUTION -eq "1" -and $env:CN_ALLOW_EXECUTION -eq "1") {
+    Write-Host "[warn] A 股风控动作真实执行已开启"
+    python scripts/risk_act.py --market cn --execute
+}
+
 Write-Host "=== 4/5 A 股本地引擎推进（信号侧）==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 

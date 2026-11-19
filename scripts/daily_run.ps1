@@ -50,6 +50,13 @@ Run-Step "paper_live" { python scripts/paper_live.py }
 
 Run-Step "execute_hk" { python -m quant.automation.execution --market hk --execute }
 
+Write-Host "=== 8b/9 风险识别 → 动作（默认 dry-run）==="
+Run-Step "risk_act_hk" { python scripts/risk_act.py --market hk }
+if ($env:RISK_ALLOW_EXECUTION -eq "1") {
+    Write-Host "[warn] 风控动作真实执行已开启（港股）"
+    Run-Step "risk_act_hk_exec" { python scripts/risk_act.py --market hk --execute }
+}
+
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }

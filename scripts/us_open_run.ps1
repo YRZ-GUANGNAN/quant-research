@@ -18,5 +18,12 @@ python -m quant.automation.execution --market us --execute --cash-share 0.35
 Write-Host "=== 3b/5 A 股代理袖套（ASHR.US，替代无法交易的沪深港通）==="
 python -m quant.automation.execution --market cn_proxy --execute --cash-share 0.65
 
+Write-Host "=== 3c/5 风险识别 → 动作（默认 dry-run）==="
+python scripts/risk_act.py --market us
+if ($env:RISK_ALLOW_EXECUTION -eq "1") {
+    Write-Host "[warn] 风控动作真实执行已开启（美股）"
+    python scripts/risk_act.py --market us --execute
+}
+
 Write-Host "=== 4/4 更新日度报告 ==="
 python scripts/lb_daily_report.py
