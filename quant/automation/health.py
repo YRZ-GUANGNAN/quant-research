@@ -141,6 +141,22 @@ def evaluate_health(live: dict, factors: dict, *, thresholds: dict | None = None
     return HealthReport(status=status, metrics=metrics, alerts=alerts, action=action)
 
 
+def de_risk_from_health(health: dict, positions: list, *, keep_ratio: float = 0.7) -> list:
+    """健康降级时，对所有持仓生成「降到 keep_ratio」的 de_risk 动作。"""
+    from quant.automation.risk_guard import Action
+
+    worst = (health or {}).get("worst", "healthy")
+    if worst != "degraded":
+        return []
+    acts = []
+    for p in positions:
+        if getattr(p, "qty", 0) > 0:
+            acts.append(Action(symbol=p.symbol, action="de_risk", severity="critical",
+                               reason=f"模型健康降级（{worst}），仓位降至 {keep_ratio:.0%}",
+                               target_qty=keep_ratio))
+    return acts
+
+
 def recent_factor_ic(lookback: int = 60) -> dict[str, float]:
     """用本地 A 股行情算最近 IC（简化：amihud/反转/动量）。"""
     try:

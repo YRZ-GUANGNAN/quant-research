@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from quant.automation.reconcile import record_expected
+from quant.automation.health import de_risk_from_health
 from quant.automation.replace import (drawdown_from_nav, momentum_candidates,
                                       pick_replacements, record_nav)
 from quant.automation.risk_execute import Limits, execute, to_orders
@@ -142,6 +143,18 @@ def main() -> int:
     if drawdown == 0.0 and cost_sum > 0:
         drawdown = (mv / cost_sum - 1.0)
     actions = evaluate(plist, equity=equity, drawdown=drawdown, policy=RiskPolicy())
+
+    # 模型健康降级 → 自动追加降仓动作（与个股风控并列）
+    health_path = ROOT / "reports" / "health_latest.json"
+    if health_path.exists():
+        try:
+            health = json.loads(health_path.read_text(encoding="utf-8-sig"))
+            extra = de_risk_from_health(health, plist, keep_ratio=0.7)
+            if extra:
+                print(f"[risk-act] 模型健康={health.get('worst')} → 追加 {len(extra)} 条降仓动作")
+                actions = extra + actions
+        except Exception as exc:  # noqa: BLE001
+            print(f"[risk-act] 健康状态读取失败（忽略降仓）: {type(exc).__name__} {str(exc)[:60]}")
 
     # 自动替换：为每个退出标的挑选候选（按目标权重降序）
     snap_path = ROOT / "state" / "target_snapshot.json"
