@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -57,10 +57,15 @@ def test_policy_blocks_oversized_order(monkeypatch, tmp_path):
 
 
 def test_no_cash_means_no_orders(monkeypatch, tmp_path):
+    """无现金、无持仓、无目标外仓位 → 不产生订单（且不触网）。"""
     monkeypatch.setattr(execution, "SNAPSHOT", tmp_path / "snap.json")
     (tmp_path / "snap.json").write_text(
         '{"sleeves":{"hk":{"weights":{"700.HK":0.5},'
         '"rebalance_date":"2026-11-01","next_rebalance_date":"2026-12-01"}}}', encoding="utf-8")
     monkeypatch.setattr(execution, "_cash", lambda ccy: 0.0)
+    monkeypatch.setattr(execution, "_quotes", lambda syms: {s: {"last": 300.0} for s in syms})
+    monkeypatch.setattr(execution, "_positions", lambda: {})
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
     plan = execution.build_plan("hk", execution.Policy())
     assert plan["ok"] is False
+    assert plan["orders"] == []

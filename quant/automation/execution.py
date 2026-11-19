@@ -33,11 +33,11 @@ LEDGER_ROOT = ROOT / "state" / "ledger"
 @dataclass
 class Policy:
     """订单硬限额（全部默认保守；命令行/配置只能收紧）。"""
-    max_orders_per_run: int = 20
-    max_orders_per_day: int = 40
-    max_notional_per_order_usd: float = 20_000.0
-    max_notional_per_day_usd: float = 120_000.0
-    min_order_notional_usd: float = 500.0
+    max_orders_per_run: int = 40
+    max_orders_per_day: int = 80
+    max_notional_per_order_usd: float = 50_000.0
+    max_notional_per_day_usd: float = 400_000.0
+    min_order_notional_usd: float = 300.0
     cash_buffer: float = 0.02
     allowed_order_type: str = "LO"
     allowed_tif: str = "Day"
@@ -125,28 +125,45 @@ def build_plan(market: str, policy: Policy) -> dict:
 
     weights = {k: float(v) for k, v in sleeve["weights"].items()}
     ccy = "USD" if market == "us" else "HKD"
-    quotes = _quotes(list(weights))
     positions = _positions()
     pending = _pending_symbols()
+    suffix = ".US" if market == "us" else ".HK"
+    universe = list(dict.fromkeys([*weights, *[s for s in positions if s.endswith(suffix)]]))
+    quotes = _quotes(universe)
     cash = _cash(ccy)
-    budget = max(0.0, cash) * (1 - policy.cash_buffer)
-    if budget <= 0:
-        return {"ok": False, "reason": f"{ccy} 可用现金 {cash:,.0f} 不足", "orders": []}
+    budget = max(0.0, cash) * (1 - policy.cash_buffer)  # 现金不足只影响买入，不影响卖出清理
 
     orders, notional = [], 0.0
+    orphan_sells, expected_cash = [], 0.0
+    # 目标外持仓：清仓（释放现金，避免旧仓位残留）
+    for sym, qty in positions.items():
+        suffix = ".US" if market == "us" else ".HK"
+        if sym.endswith(suffix) and sym not in weights and sym not in pending and qty > 0:
+            q = quotes.get(sym) or {}
+            last = float(q.get("last") or 0)
+            if last <= 0:
+                continue
+            px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
+            orphan_sells.append({"symbol": sym, "side": "sell", "qty": int(qty), "price": px,
+                                 "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
+                                 "notional": round(qty * px, 2)})
+            expected_cash += qty * px
+
+    # 加仓：已有持仓按目标权重补足；无持仓的新标的按目标买入
     for sym, w in weights.items():
-        if sym in positions or sym in pending:
+        if sym in pending:
             continue
         q = quotes.get(sym)
         if not q or not q.get("last"):
             continue
         price = float(q["last"])
         target = budget * w
-        if target < policy.min_order_notional_usd:
+        current = positions.get(sym, 0.0) * price
+        gap = target - current
+        if gap < policy.min_order_notional_usd:
             continue
-        qty = target / price
         lot = 100 if market == "hk" else 1
-        qty = int(qty // lot * lot) if market == "hk" else int(qty)
+        qty = int((gap / price) // lot * lot) if market == "hk" else int(gap / price)
         if qty <= 0:
             continue
         px = round(price + _tick_hk(price), 3) if market == "hk" else round(price * 1.005, 2)
@@ -155,14 +172,20 @@ def build_plan(market: str, policy: Policy) -> dict:
             continue
         if len(orders) >= policy.max_orders_per_run:
             break
-        if notional + value > policy.max_notional_per_day_usd:
+        if notional + value > policy.max_notional_per_day_usd + expected_cash * 0.95:
             break
         orders.append({"symbol": sym, "side": "buy", "qty": qty, "price": px,
                        "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
                        "notional": round(value, 2)})
         notional += value
+
+    plan_orders = orphan_sells + orders
+    if not plan_orders:
+        return {"ok": False,
+                "reason": f"{ccy} 可用现金 {cash:,.0f}，无可执行订单（已达标或现金不足）",
+                "orders": []}
     return {"ok": True, "market": market, "currency": ccy, "cash": cash,
-            "budget": round(budget, 2), "orders": orders,
+            "budget": round(budget, 2), "orders": plan_orders,
             "snapshot_rebalance_date": sleeve.get("rebalance_date"),
             "snapshot_next": sleeve.get("next_rebalance_date")}
 
