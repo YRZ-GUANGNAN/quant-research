@@ -70,8 +70,9 @@ def main() -> int:
             if n == 0:
                 checks.append({"item": "下单计划", "value": "0 笔（可能现金不足或休市）",
                                "status": "WARN"})
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        checks.append({"item": "下单计划", "value": f"解析失败: {type(exc).__name__}",
+                       "status": "WARN"})
 
     def _cli_ok(args):
         try:

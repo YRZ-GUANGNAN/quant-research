@@ -87,8 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         for o in cli_json(["order"]) or []:
             if isinstance(o, dict) and o.get("status") in ("New", "NotReported", "Submitted", "PartFilled", "PartialFilled", "WaitingSubmit", "Filling"):
                 pending_symbols.add(o.get("symbol"))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"[abort] 无法查询挂单，拒绝执行以避免重复买入: {type(exc).__name__} {str(exc)[:80]}")
     cash = cash_of("USD" if args.market == "us" else "HKD")
     print(f"[rebalance] {args.market} 预算 {budget:,.0f}，可用现金 {cash:,.0f}，持仓 {len(pos)} 只")
 

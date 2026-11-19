@@ -80,8 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         for o in cli(["order"]) or []:
             if isinstance(o, dict) and o.get("status") in ("NotReported", "New", "Submitted", "PartFilled"):
                 pending_symbols.add(o.get("symbol"))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"[abort] 无法查询挂单，拒绝执行以避免重复卖出: {type(exc).__name__} {str(exc)[:80]}")
     if pending_symbols:
         print(f"[plan] 已有挂单标的（跳过）: {sorted(pending_symbols)}")
     quotes = {}

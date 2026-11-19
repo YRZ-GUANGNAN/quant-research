@@ -40,7 +40,7 @@ def main() -> int:
                 print(f"[snapshot] {market} 周期内跳过（next {_existing['next_rebalance_date']}）")
                 continue
         except ValueError:
-            pass
+            print(f"[snapshot] {market} 的 next_rebalance_date 非法，将重新计算")
         topk, suffix, reb = SLEEVES[market]
         bars = store.load_bars(market)
         data_date = bars["date"].max().date()

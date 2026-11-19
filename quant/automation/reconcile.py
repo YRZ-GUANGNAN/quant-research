@@ -81,7 +81,8 @@ def reconcile(expected: list[dict], orders: list[dict], *, qty_tolerance: float 
             try:
                 executed += float(o.get("executed_quantity") or 0)
             except (TypeError, ValueError):
-                pass
+                # 交易所返回的成交量为空/非数字：按 0 计，但留痕
+                statuses.append("PARSE_ERROR")
             statuses.append(str(o.get("status") or ""))
             if o.get("order_id"):
                 ids.append(str(o["order_id"]))

@@ -188,6 +188,7 @@ def _read_balance_via_gui() -> dict:
             try:
                 out[label] = float(raw)
             except ValueError:
+                print(f"[cn] 资金字段解析失败：{label}={raw!r}")
                 continue
     if not out:
         raise RuntimeError("未能从 GUI 解析出资金字段")
@@ -255,6 +256,7 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
                 try:
                     return float(str(d[k]).replace(",", ""))
                 except ValueError:
+                    print(f"[cn] 数值字段不可解析：{k}={d[k]!r}，尝试下一个键")
                     continue
         return 0.0
 

@@ -1,4 +1,4 @@
-﻿"""Append-only 幂等账本（P4-C 最小实现）。
+"""Append-only 幂等账本（P4-C 最小实现）。
 
 约束来自方案 B 设计 6.1.1 / P4-C：
 - consumption_key = sha256(canonical_json_bytes({environment, market, snapshot_id, eligible_execution_session}))，
@@ -67,7 +67,7 @@ class Ledger:
         try:
             os.unlink(self.lock_path)
         except FileNotFoundError:
-            pass
+            pass  # noqa: silent-ok - 锁文件已被其他进程释放
 
     def head(self) -> dict[str, Any]:
         if not self.head_path.exists():
