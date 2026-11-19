@@ -4,6 +4,7 @@ $ErrorActionPreference = "Continue"
 Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
+$env:LB_ALLOW_EXECUTION = "1"  # 受控执行通道（policy + ledger 保护）
 
 $script:failures = 0
 function Run-Step([string]$desc, [scriptblock]$cmd) {
@@ -44,8 +45,7 @@ Write-Host "=== 8/9 券商模拟盘：建仓 + 再平衡 ==="
 Run-Step "paper_live" { python scripts/paper_live.py }
 
 
-Run-Step "order_map" { python scripts/lb_order_map.py --skip-existing --only both --execute }
-Run-Step "rebalance_hk" { python scripts/lb_rebalance.py --market hk --execute }
+Run-Step "execute_hk" { python -m quant.automation.execution --market hk --execute }
 
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }

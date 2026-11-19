@@ -54,7 +54,7 @@ def fetch_quotes(codes: list[str]) -> dict[str, dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Longbridge 实时报价执行模拟盘挂单")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--date-label", default="2026-10-23-live")
+    ap.add_argument("--date-label", default=None, help="nav 记录标签，默认用账户最后交易日")
     args = ap.parse_args()
 
     state = PaperState.load()
@@ -89,14 +89,15 @@ def main() -> int:
             print(f"  {code} {lb_symbol(code)} last={q['last']} prev={q['prev_close']}")
         return 0
 
-    execute_target(broker, cfg, args.date_label, last, prev, pending)
+    date_label = args.date_label or str(state.last_date)
+    execute_target(broker, cfg, date_label, last, prev, pending)
     state.sync_from_broker(broker)
     eq_after = state.equity()
     state.pending = {}
-    # 注意：不要把 last_date 改成 "-live" 标签，否则日更脚本的日期解析会失败。
-    # 保持为最后一个有日线的交易日，live 成交只记入 nav_history。
+    # 保持 last_date 为最后一个有日线的交易日；live 成交只记入 nav_history
+    state.nav_history = [h for h in state.nav_history if h.get("date") != date_label]
     state.nav_history.append(
-        {"date": args.date_label, "equity": round(eq_after, 2), "cash": round(state.cash, 2),
+        {"date": date_label, "equity": round(eq_after, 2), "cash": round(state.cash, 2),
          "n_positions": len(state.positions)}
     )
     state.save()
