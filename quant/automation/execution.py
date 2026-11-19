@@ -41,6 +41,8 @@ class Policy:
     cash_buffer: float = 0.02
     allowed_order_type: str = "LO"
     allowed_tif: str = "Day"
+    # 默认不清理目标外持仓：旧目标买入的仓位是合法持仓，清仓会带来巨量成交与成本
+    cleanup_orphans: bool = False
 
 
 def _cli(args: list[str], timeout: int = 40) -> object:
@@ -131,13 +133,25 @@ def build_plan(market: str, policy: Policy) -> dict:
     universe = list(dict.fromkeys([*weights, *[s for s in positions if s.endswith(suffix)]]))
     quotes = _quotes(universe)
     cash = _cash(ccy)
-    budget = max(0.0, cash) * (1 - policy.cash_buffer)  # 现金不足只影响买入，不影响卖出清理
+    # 目标权重应按「该市场总权益」计算，而不是只看可用现金
+    market_value = 0.0
+    for sym, qty in positions.items():
+        if sym.endswith(suffix):
+            q = quotes.get(sym) or {}
+            last = float(q.get("last") or 0)
+            if last > 0:
+                market_value += qty * last
+    equity = max(0.0, cash) + market_value
+    sleeve_weight = 0.75 if market == "us" else 0.25
+    budget = equity * sleeve_weight * (1 - policy.cash_buffer)
+    cash_cap = max(0.0, cash) * (1 - policy.cash_buffer)  # 买入总额上限
 
     orders, notional = [], 0.0
     orphan_sells, expected_cash = [], 0.0
     # 目标外持仓：清仓（释放现金，避免旧仓位残留）
     for sym, qty in positions.items():
-        suffix = ".US" if market == "us" else ".HK"
+        if not policy.cleanup_orphans:
+            break
         if sym.endswith(suffix) and sym not in weights and sym not in pending and qty > 0:
             q = quotes.get(sym) or {}
             last = float(q.get("last") or 0)
@@ -172,7 +186,7 @@ def build_plan(market: str, policy: Policy) -> dict:
             continue
         if len(orders) >= policy.max_orders_per_run:
             break
-        if notional + value > policy.max_notional_per_day_usd + expected_cash * 0.95:
+        if notional + value > min(policy.max_notional_per_day_usd, cash_cap) + expected_cash * 0.95:
             break
         orders.append({"symbol": sym, "side": "buy", "qty": qty, "price": px,
                        "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
