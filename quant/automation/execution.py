@@ -121,10 +121,10 @@ def _tick_hk(price: float) -> float:
     return 5.0
 
 
-def build_plan(market: str, policy: Policy) -> dict:
+def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     """从冻结快照生成订单计划（不提交）。任何异常 → 返回空计划原因。"""
     if market in PROXIES:
-        return _build_proxy_plan(market, policy)
+        return _build_proxy_plan(market, policy, cash_share)
     snap = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     sleeve = (snap.get("sleeves") or {}).get(market)
     if not sleeve or not sleeve.get("weights"):
@@ -152,7 +152,7 @@ def build_plan(market: str, policy: Policy) -> dict:
     equity = max(0.0, cash) + market_value
     sleeve_weight = 0.75 if market == "us" else 0.25
     budget = equity * sleeve_weight * (1 - policy.cash_buffer)
-    cash_cap = max(0.0, cash) * (1 - policy.cash_buffer)  # 买入总额上限
+    cash_cap = max(0.0, cash) * max(0.0, min(1.0, cash_share)) * (1 - policy.cash_buffer)  # 买入总额上限
 
     orders, notional = [], 0.0
     orphan_sells, expected_cash = [], 0.0
@@ -212,7 +212,7 @@ def build_plan(market: str, policy: Policy) -> dict:
             "snapshot_next": sleeve.get("next_rebalance_date")}
 
 
-def _build_proxy_plan(market: str, policy: Policy) -> dict:
+def _build_proxy_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     """A 股代理袖套：把 60% 目标作为单一 ETF 持仓来执行。"""
     cfg = PROXIES[market]
     sym, ccy = cfg["symbol"], cfg["currency"]
@@ -221,7 +221,7 @@ def _build_proxy_plan(market: str, policy: Policy) -> dict:
     last = float(q.get("last") or 0)
     if last <= 0:
         return {"ok": False, "reason": f"{sym} 无报价", "orders": []}
-    cash = _cash(ccy)
+    cash = _cash(ccy) * max(0.0, min(1.0, cash_share))
     positions = _positions()
     held = positions.get(sym, 0.0)
     market_value = sum(
@@ -256,7 +256,7 @@ def _build_proxy_plan(market: str, policy: Policy) -> dict:
             "snapshot_rebalance_date": "proxy", "snapshot_next": "2099-12-31"}
 
 
-def execute(market: str, *, dry_run: bool, policy: Policy | None = None) -> dict:
+def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_share: float = 1.0) -> dict:
     policy = policy or Policy()
     if not dry_run:
         if os.environ.get("LB_ALLOW_EXECUTION") != "1":
@@ -264,7 +264,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None) -> dict
         if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
             return {"ok": False, "reason": "缺少 LB_ACCOUNT_KIND=paper，拒绝提交", "orders": []}
 
-    plan = build_plan(market, policy)
+    plan = build_plan(market, policy, cash_share)
     if not plan.get("ok") or not plan["orders"]:
         return plan
     if dry_run:
@@ -313,9 +313,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="受控模拟盘执行通道（默认 dry-run）")
     ap.add_argument("--market", choices=["us", "hk", "cn_proxy", "cn_proxy_hk"], required=True)
     ap.add_argument("--execute", action="store_true", help="真正提交（还需 LB_ALLOW_EXECUTION=1）")
+    ap.add_argument("--cash-share", type=float, default=1.0,
+                    help="本袖套可使用的现金份额（0-1），用于多袖套分配")
     args = ap.parse_args(argv)
 
-    result = execute(args.market, dry_run=not args.execute)
+    result = execute(args.market, dry_run=not args.execute, cash_share=args.cash_share)
     print(json.dumps(result, ensure_ascii=False, indent=2)[:4000])
     ok = result.get("ok") and not any(str(r.get("status", "")).startswith(("error", "unknown"))
                                       for r in result.get("results", []))
