@@ -173,7 +173,8 @@ def main() -> int:
     print(summarize(actions))
 
     planned = to_orders(actions, positions, quotes, Limits())
-    if planned:
+    if planned and args.execute:
+        # 只有真实提交才记录期望订单；dry-run 不写，避免对账误报
         record_expected(args.market, [{"symbol": o.symbol, "side": o.side, "qty": o.qty} for o in planned])
     result = execute(actions, market=args.market, dry_run=not args.execute,
                      positions=positions, quotes=quotes, limits=Limits())
