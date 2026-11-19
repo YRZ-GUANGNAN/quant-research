@@ -264,17 +264,21 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
         if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
             return {"ok": False, "reason": "缺少 LB_ACCOUNT_KIND=paper，拒绝提交", "orders": []}
 
+    # 真提交：先做时段门控（避免无谓的行情/账户查询）
+    if not dry_run:
+        sess = market_sessions()
+        mkt = "US" if market in ("us", "cn_proxy") else "HK"
+        if sess.get(mkt) != "Trading":
+            return {"ok": False,
+                    "reason": f"{mkt} 当前 {sess.get(mkt, 'UNKNOWN')}，非交易时段不提交",
+                    "orders": []}
+
     plan = build_plan(market, policy, cash_share)
     if not plan.get("ok") or not plan["orders"]:
         return plan
     if dry_run:
         plan["dry_run"] = True
         return plan
-
-    sess = market_sessions()
-    mkt = "US" if market in ("us", "cn_proxy") else "HK"
-    if sess.get(mkt) != "Trading":
-        return {"ok": False, "reason": f"{mkt} 当前 {sess.get(mkt, 'UNKNOWN')}，非交易时段不提交", "orders": []}
 
     session = datetime.now(timezone.utc).date().isoformat()
     key = consumption_key(market=market, snapshot_id=str(plan["snapshot_rebalance_date"]),

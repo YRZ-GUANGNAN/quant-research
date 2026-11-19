@@ -181,15 +181,19 @@ def _read_balance_via_gui() -> dict:
             texts.append(t)
 
     out: dict[str, float] = {}
+    labels_norm = {lb.replace(" ", "") for lb in BALANCE_LABELS}
     for i, t in enumerate(texts):
         label = t.replace(" ", "")
-        if any(label == lb.replace(" ", "") for lb in BALANCE_LABELS) and i + 1 < len(texts):
-            raw = texts[i + 1].replace(",", "").replace("%", "")
+        if label not in labels_norm:
+            continue
+        # 向后找第一个可解析为数字的文本（中间可能夹着别的标签）
+        for j in range(i + 1, min(i + 4, len(texts))):
+            raw = texts[j].replace(",", "").replace("%", "").strip()
             try:
                 out[label] = float(raw)
+                break
             except ValueError:
-                print(f"[cn] 资金字段解析失败：{label}={raw!r}")
-                continue
+                continue  # noqa: silent-ok - 跳过非数值文本，继续找真正的数值
     if not out:
         raise RuntimeError("未能从 GUI 解析出资金字段")
     return out
