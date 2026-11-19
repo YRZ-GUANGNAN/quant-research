@@ -33,5 +33,9 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
 Write-Host "=== 3d/5 执行对账（期望 vs 实际）==="
 Run-StepLocal "reconcile_us" { python scripts/reconcile_today.py --market us }
 
+Write-Host "=== 3e/5 模型健康检查 ==="
+python scripts/health_check.py
+if ($LASTEXITCODE -ne 0) { Write-Host "[warn] 模型健康降级（不阻断）" }
+
 Write-Host "=== 4/4 更新日度报告 ==="
 python scripts/lb_daily_report.py

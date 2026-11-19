@@ -60,6 +60,12 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
 Write-Host "=== 8c/9 执行对账（港股）==="
 Run-Step "reconcile_hk" { python scripts/reconcile_today.py --market hk }
 
+Write-Host "=== 8d/9 模型健康检查 ==="
+python scripts/health_check.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[warn] 模型健康降级：建议降低仓位或人工复核（不阻断本次流程）"
+}
+
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }
