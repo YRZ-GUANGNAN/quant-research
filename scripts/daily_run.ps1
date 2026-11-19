@@ -35,6 +35,9 @@ Write-Host "=== 3b/9 数据门禁（不通过则禁止推进账户与下单）==
 python scripts/pre_trade_gate.py
 if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] 数据门禁未通过：不推进账户、不下单"; exit 1 }
 
+Write-Host "=== 3c/9 A 股交易通道状态（QMT / 同花顺 / 本地）==="
+python -m quant.broker.cn_broker --status
+
 Write-Host "=== 4/9 本地 A 股模拟盘推进 ==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 
