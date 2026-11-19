@@ -66,6 +66,9 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[warn] 模型健康降级：建议降低仓位或人工复核（不阻断本次流程）"
 }
 
+Write-Host "=== 8e/9 业绩归因 ==="
+Run-Step "attribution" { python scripts/attribution.py }
+
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }

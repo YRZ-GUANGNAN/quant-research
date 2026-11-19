@@ -37,5 +37,9 @@ Write-Host "=== 3e/5 模型健康检查 ==="
 python scripts/health_check.py
 if ($LASTEXITCODE -ne 0) { Write-Host "[warn] 模型健康降级（不阻断）" }
 
-Write-Host "=== 4/4 更新日度报告 ==="
+Write-Host "=== 3f/5 业绩归因 ==="
+python scripts/attribution.py
+
+Write-Host "=== 4/4 日度报告 + 绩效面板 ==="
 python scripts/lb_daily_report.py
+python scripts/dashboard.py
