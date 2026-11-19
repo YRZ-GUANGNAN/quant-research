@@ -55,13 +55,35 @@ def load_lb(market: str):
         last = float((quotes.get(sym) or {}).get("last") or cost)
         positions[sym] = {"qty": qty, "last": last, "cost": cost}
         pmeta[sym] = Position(symbol=sym, qty=qty, cost=cost, last=last)
-    return positions, quotes, list(pmeta.values())
+    cash = 0.0
+    try:
+        for a in _cli_json(["assets"]) or []:
+            for c in a.get("cash_infos") or []:
+                if c.get("currency") == ("USD" if market == "us" else "HKD"):
+                    cash = float(c.get("available_cash") or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return positions, quotes, list(pmeta.values()), cash
 
 
 def load_cn():
+    """读取 A 股持仓；读不到时回退到上次已知持仓（带 staleness 标记）。"""
     from quant.broker import cn_broker
 
-    rows = cn_broker._read_positions_via_clipboard()
+    try:
+        rows = cn_broker._read_positions_via_clipboard()
+    except Exception as exc:  # noqa: BLE001
+        rows = []
+        print(f"[risk-act] 持仓读取失败（{type(exc).__name__}）")
+    if not rows:
+        cache = ROOT / "reports" / "cn_risk_latest.json"
+        if cache.exists():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            cached = data.get("positions") or []
+            if cached:
+                print(f"[risk-act] 使用上次已知持仓 {len(cached)} 只（可能已过期，请核对）")
+                rows = [{"证券代码": c["symbol"], "股票余额": c["qty"], "可用余额": c["qty"],
+                         "市价": c["last"], "成本价": c["cost"]} for c in cached]
     positions, quotes, plist = {}, {}, []
     for r in rows:
         code = str(r.get("证券代码") or "")
@@ -74,7 +96,14 @@ def load_cn():
         positions[code] = {"qty": avail or qty, "last": price, "cost": cost}
         quotes[code] = {"last": price}
         plist.append(Position(symbol=code, qty=qty, cost=cost, last=price))
-    return positions, quotes, plist
+    cash = 0.0
+    try:
+        from quant.broker import cn_broker
+        bal = cn_broker._read_balance_via_gui()
+        cash = float(bal.get("可用金额") or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return positions, quotes, plist, cash
 
 
 def main() -> int:
@@ -84,15 +113,16 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.market == "cn":
-        positions, quotes, plist = load_cn()
+        positions, quotes, plist, cash = load_cn()
     else:
-        positions, quotes, plist = load_lb(args.market)
+        positions, quotes, plist, cash = load_lb(args.market)
 
     if not plist:
         print(f"[risk-act] {args.market}: 无持仓，跳过")
         return 0
 
-    equity = sum(p.qty * p.last for p in plist)
+    mv = sum(p.qty * p.last for p in plist)
+    equity = mv + cash          # 权重按总资产（含现金）计算
     cost_sum = sum(p.qty * p.cost for p in plist)
     # 真实回撤：优先用净值历史（每日记录），否则退回成本价近似
     nav_path = ROOT / "reports" / "nav_history.csv"
@@ -105,11 +135,11 @@ def main() -> int:
                         cash_lb = float(c.get("available_cash") or 0)
         except Exception:  # noqa: BLE001
             cash_lb = 0.0
-    record_nav(nav_path, market=args.market, equity=equity + cash_lb, cash=cash_lb,
-               positions=len(plist))
+    record_nav(nav_path, market=args.market, equity=mv + cash_lb + (0 if args.market == "cn" else 0),
+               cash=cash_lb, positions=len(plist))
     drawdown = drawdown_from_nav(nav_path, args.market)
     if drawdown == 0.0 and cost_sum > 0:
-        drawdown = (equity / cost_sum - 1.0)
+        drawdown = (mv / cost_sum - 1.0)
     actions = evaluate(plist, equity=equity, drawdown=drawdown, policy=RiskPolicy())
 
     # 自动替换：为每个退出标的挑选候选（按目标权重降序）
