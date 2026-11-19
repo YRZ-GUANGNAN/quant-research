@@ -27,6 +27,12 @@ from quant.automation.ledger import (  # noqa: E402
 
 LB = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "longbridge.exe"
 SNAPSHOT = ROOT / "state" / "target_snapshot.json"
+
+# A 股敞口的可执行代理：券商不支持沪深港通（603305），改用美股/港股上市的中国 A 股 ETF
+PROXIES = {
+    "cn_proxy": {"symbol": "ASHR.US", "sleeve_weight": 0.60, "currency": "USD", "session": "US"},
+    "cn_proxy_hk": {"symbol": "3188.HK", "sleeve_weight": 0.60, "currency": "HKD", "session": "HK"},
+}
 LEDGER_ROOT = ROOT / "state" / "ledger"
 
 
@@ -117,6 +123,8 @@ def _tick_hk(price: float) -> float:
 
 def build_plan(market: str, policy: Policy) -> dict:
     """从冻结快照生成订单计划（不提交）。任何异常 → 返回空计划原因。"""
+    if market in PROXIES:
+        return _build_proxy_plan(market, policy)
     snap = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     sleeve = (snap.get("sleeves") or {}).get(market)
     if not sleeve or not sleeve.get("weights"):
@@ -204,6 +212,50 @@ def build_plan(market: str, policy: Policy) -> dict:
             "snapshot_next": sleeve.get("next_rebalance_date")}
 
 
+def _build_proxy_plan(market: str, policy: Policy) -> dict:
+    """A 股代理袖套：把 60% 目标作为单一 ETF 持仓来执行。"""
+    cfg = PROXIES[market]
+    sym, ccy = cfg["symbol"], cfg["currency"]
+    quotes = _quotes([sym])
+    q = quotes.get(sym) or {}
+    last = float(q.get("last") or 0)
+    if last <= 0:
+        return {"ok": False, "reason": f"{sym} 无报价", "orders": []}
+    cash = _cash(ccy)
+    positions = _positions()
+    held = positions.get(sym, 0.0)
+    market_value = sum(
+        qty * float((_quotes([s2]) or {}).get(s2, {}).get("last") or 0)
+        for s2, qty in positions.items() if s2.endswith(".US" if ccy == "USD" else ".HK")
+    )
+    equity = max(0.0, cash) + market_value
+    target = equity * cfg["sleeve_weight"] * (1 - policy.cash_buffer)
+    current = held * last
+    gap = target - current
+    lot = 1 if ccy == "USD" else 100
+    qty = int((gap / last) // lot * lot) if gap > 0 else 0
+    orders = []
+    if qty > 0:
+        px = round(last * 1.005, 2) if ccy == "USD" else round(last + _tick_hk(last), 3)
+        cap = max(0.0, cash) * (1 - policy.cash_buffer)
+        # 受单笔限额与现金上限约束：超出则按上限下部分订单（分多日建仓）
+        max_value = min(policy.max_notional_per_order_usd, cap)
+        if qty * px > max_value:
+            qty = int((max_value / px) // lot * lot) if lot > 1 else int(max_value / px)
+        value = qty * px
+        if qty > 0 and value >= policy.min_order_notional_usd:
+            orders.append({"symbol": sym, "side": "buy", "qty": qty, "price": px,
+                           "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
+                           "notional": round(value, 2)})
+    if not orders:
+        return {"ok": False,
+                "reason": f"目标 {target:,.0f} 当前 {current:,.0f}，现金 {cash:,.0f}，无需/无法下单",
+                "orders": []}
+    return {"ok": True, "market": market, "currency": ccy, "cash": cash,
+            "budget": round(target, 2), "orders": orders,
+            "snapshot_rebalance_date": "proxy", "snapshot_next": "2099-12-31"}
+
+
 def execute(market: str, *, dry_run: bool, policy: Policy | None = None) -> dict:
     policy = policy or Policy()
     if not dry_run:
@@ -212,17 +264,17 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None) -> dict
         if os.environ.get("LB_ACCOUNT_KIND", "").lower() not in ("paper", "simulated"):
             return {"ok": False, "reason": "缺少 LB_ACCOUNT_KIND=paper，拒绝提交", "orders": []}
 
-    sess = market_sessions()
-    mkt = "US" if market == "us" else "HK"
-    if sess.get(mkt) != "Trading":
-        return {"ok": False, "reason": f"{mkt} 当前 {sess.get(mkt, 'UNKNOWN')}，非交易时段不提交", "orders": []}
-
     plan = build_plan(market, policy)
     if not plan.get("ok") or not plan["orders"]:
         return plan
     if dry_run:
         plan["dry_run"] = True
         return plan
+
+    sess = market_sessions()
+    mkt = "US" if market in ("us", "cn_proxy") else "HK"
+    if sess.get(mkt) != "Trading":
+        return {"ok": False, "reason": f"{mkt} 当前 {sess.get(mkt, 'UNKNOWN')}，非交易时段不提交", "orders": []}
 
     session = datetime.now(timezone.utc).date().isoformat()
     key = consumption_key(market=market, snapshot_id=str(plan["snapshot_rebalance_date"]),
@@ -259,7 +311,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None) -> dict
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="受控模拟盘执行通道（默认 dry-run）")
-    ap.add_argument("--market", choices=["us", "hk"], required=True)
+    ap.add_argument("--market", choices=["us", "hk", "cn_proxy", "cn_proxy_hk"], required=True)
     ap.add_argument("--execute", action="store_true", help="真正提交（还需 LB_ALLOW_EXECUTION=1）")
     args = ap.parse_args(argv)
 
