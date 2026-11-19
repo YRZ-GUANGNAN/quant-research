@@ -153,3 +153,25 @@
 - 安全自动化设计：`docs/superpowers/specs/2026-10-24-quant-safe-automation-plan-b-design.md`
 - 迭代日志：`docs/journal/`（30+ 篇）
 - 复现命令：`python -m pytest -q`、`python scripts/pre_trade_gate.py`、`python scripts/portfolio_fx.py --phases 0,5,10,15`
+
+---
+
+## 补充（2026-11-19）：受控执行通道已恢复，交易将于 11-20 恢复
+
+**问题**：10-29 起旧下单通道被 P0-B 全面阻断（exit 20），新通道未建成，导致 **20 天零交易**。
+
+**修复**：新增 `quant/automation/execution.py` 作为唯一允许发单的路径：
+- 双重开关：`LB_ALLOW_EXECUTION=1` + `LB_ACCOUNT_KIND=paper`；
+- 默认 dry-run；市场非 `Trading` 直接跳过；
+- 订单白名单 `LO + Day + Buy`；policy 限额（单笔 5 万 USD / 单轮 40 笔 / 单日 40 万 USD / 最小 300 USD）；
+- 账本一次性消费（同一快照+交易日只提交一次）；
+- 预算按「市场权益 × 袖套权重」计算，买入受现金上限约束；
+- 目标外持仓**默认不清仓**（`cleanup_orphans=False`），避免误清仓。
+
+**明日（11-20）计划**（dry-run 实测）：
+- 港股 15:40：0939.HK 3,600 股 ≈ 3.78 万 HKD；
+- 美股 21:35：8 笔 ≈ 10.6 万 USD。
+
+**同时修复**：`paper_live.py` 的 nav 记录硬编码标签 bug，清理 14 条脏历史记录。
+
+**测试**：65 passed。
