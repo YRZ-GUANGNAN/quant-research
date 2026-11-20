@@ -161,8 +161,9 @@ def _trade_window(wait_seconds: int = 60):
     win = _find_trade_window()
     if win is not None:
         return win
-    if THS_TRADE_EXE.exists():
-        print("[cn] 交易客户端未运行，尝试启动")
+    if THS_TRADE_EXE.exists() and os.environ.get("CN_AUTOLAUNCH") == "1":
+        # 真实券商登录需要验证码，自动拉起会反复弹验证；只有显式允许时才拉起
+        print("[cn] 交易客户端未运行，尝试启动（CN_AUTOLAUNCH=1）")
         try:
             subprocess.Popen([str(THS_TRADE_EXE)])
         except OSError as exc:
@@ -206,10 +207,17 @@ def _select_query_tab(label: str) -> bool:
     return False
 
 
+def _clipboard_allowed() -> bool:
+    """真实券商的防拷贝风控：每次 Ctrl+C 都会弹验证码，必须能整体关掉。"""
+    return os.environ.get("CN_ALLOW_CLIPBOARD", "1") != "0"
+
+
 def _read_grid_via_clipboard(tab: str | None = None) -> list[dict]:
     """读取当前表格（全选复制解析）；tab 指定要切换的查询页。"""
     import time
 
+    if not _clipboard_allowed():
+        raise RuntimeError("CN_ALLOW_CLIPBOARD=0：剪贴板读表已禁用（真实券商会弹验证码）")
     from pywinauto.keyboard import send_keys
     import win32clipboard
 
@@ -255,6 +263,36 @@ def _parse_clipboard_table(data: str) -> tuple[list[dict], list[str]]:
     return rows, header
 
 
+def _select_tab_by_keyboard(expect_col: str, max_steps: int = 30) -> bool:
+    """版本无关的切页方式：F4 聚焦查询树 → 逐个下移回车 → 用表头确认。
+
+    不同同花顺版本的左侧树控件 UIA 暴露情况不一样（有的能直接点节点，有的完全
+    不暴露），但「方向键 + 回车」在两种版本上都能切页，靠表头自证是否切对。
+    """
+    import time
+
+    from pywinauto.keyboard import send_keys
+
+    win = _trade_window()
+    _ensure_visible(win)
+    win.set_focus()
+    send_keys("{F4}")
+    time.sleep(0.6)
+    seen: set[str] = set()
+    for _ in range(max_steps):
+        send_keys("{DOWN}")
+        time.sleep(0.15)
+        send_keys("{ENTER}")
+        time.sleep(0.5)
+        header = tuple(_peek_header()[:3])
+        if expect_col in _peek_header():
+            return True
+        if header and header in seen and len(seen) > 3:
+            break  # 已经在同一批页面上打转
+        seen.add(header)
+    return False
+
+
 def _read_checked(tab: str, expect_col: str, attempts: int = 3) -> list[dict]:
     """读表格并按表头校验页面：读错页或窗口异常时必须报错而不是返回别的表。"""
     import time
@@ -268,6 +306,15 @@ def _read_checked(tab: str, expect_col: str, attempts: int = 3) -> list[dict]:
         header = _peek_header()
         if expect_col in header:
             return rows
+        if i == 0 and expect_col not in header:
+            # 首选 UIA 点节点；这个版本可能不暴露树控件 → 退回键盘遍历
+            if _select_tab_by_keyboard(expect_col):
+                rows = _read_grid_via_clipboard()
+                if rows and expect_col in rows[0]:
+                    return rows
+                header = _peek_header()
+                if expect_col in header:
+                    return rows
         if i + 1 < attempts:
             time.sleep(1.0)
     raise RuntimeError(f"「{tab}」读取失败：表头 {header[:6]} 不含 {expect_col}")
@@ -673,7 +720,10 @@ def main(argv: list[str] | None = None) -> int:
     print(status_text())
     if args.status or not args.target:
         return 0
-    weights = json.loads(Path(args.target).read_text(encoding="utf-8"))
+    raw = json.loads(Path(args.target).read_text(encoding="utf-8"))
+    # 兼容两种格式：{code: weight} 或 {"weights": {code: weight}, ...元信息}
+    weights = raw.get("weights", raw) if isinstance(raw, dict) else {}
+    weights = {str(k): float(v) for k, v in weights.items() if isinstance(v, (int, float))}
     limits = Limits()
     if args.max_orders:
         limits.max_orders_per_run = args.max_orders
