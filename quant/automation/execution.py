@@ -51,7 +51,7 @@ class Policy:
     cleanup_orphans: bool = False
 
 
-def _cli(args: list[str], timeout: int = 40) -> object:
+def _cli_once(args: list[str], timeout: int = 40) -> object:
     proc = subprocess.run([str(LB), *args, "--format", "json"], capture_output=True,
                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
     out = (proc.stdout or "").strip()
@@ -66,6 +66,26 @@ def _cli(args: list[str], timeout: int = 40) -> object:
         if s >= 0 and e > s:
             return json.loads(out[s:e + 1])
         raise
+
+
+def _cli(args: list[str], timeout: int = 40) -> object:
+    """CLI 调用带重试：Longbridge 接口偶发连接失败（大陆接入点抖动）。"""
+    import time
+
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            return _cli_once(args, timeout)
+        except RuntimeError as exc:
+            last = exc
+            msg = str(exc)
+            transient = any(k in msg for k in ("error sending request", "Connect", "timeout",
+                                               "temporarily", "502", "503", "504"))
+            if not transient:
+                raise
+            print(f"[exec] CLI 连接失败，{2 * (attempt + 1)}s 后重试（{attempt + 1}/3）")
+            time.sleep(2 * (attempt + 1))
+    raise last if last else RuntimeError("CLI 调用失败")
 
 
 def market_sessions() -> dict[str, str]:
@@ -311,6 +331,13 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
         except (StateConflict, Exception) as exc:  # noqa: BLE001
             results.append({**item, "status": f"error: {str(exc)[:80]}"})
     plan["results"] = results
+    if not any(r.get("order_id") for r in results):
+        # 一笔都没落地（网络/权限/拒单）：把当日额度放回去，避免计划被白烧掉
+        ledger.release(key=key, reason="全部委托未提交成功: " + "; ".join(
+            str(r.get("status", ""))[:40] for r in results[:3]))
+        plan["ok"] = False
+        plan["reason"] = "全部委托未提交成功，已释放本交易日额度"
+        plan["blocked"] = True
     return plan
 
 

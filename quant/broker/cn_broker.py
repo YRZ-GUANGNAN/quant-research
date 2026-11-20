@@ -236,9 +236,49 @@ def _select_query_tab(label: str) -> bool:
     return False
 
 
+class BrokerGuard(RuntimeError):
+    """券商侧风控弹窗（例如「检测到您正在拷贝数据」）——遇到就立刻停手，绝不重试。"""
+
+
+GUARD_MARKERS = ("正在拷贝数据", "请先输入验证码", "验证码")
+
+
+def _dismiss_guard_dialog() -> str:
+    """检测并关闭「检测到您正在拷贝数据…」这类模态弹窗，返回弹窗文字（没有则空串）。
+
+    这种弹窗会锁住主窗口，后续每次 UI 操作都卡住；发现后必须马上取消，
+    而不是傻等或者反复重试——这才是「一直卡」的根因。
+    """
+    import time
+
+    from pywinauto import Desktop
+
+    for w in Desktop(backend="win32").windows():
+        try:
+            if w.class_name() != "#32770":
+                continue
+            texts = " ".join(t for t in (w.texts() or []) if t)
+        except Exception:  # noqa: BLE001 - 读不到就跳过，不阻塞主流程
+            continue
+        if not any(m in texts for m in GUARD_MARKERS):
+            continue
+        try:
+            for child in w.children():
+                if (child.window_text() or "").strip() == "取消":
+                    child.click()
+                    time.sleep(0.3)
+                    break
+        except Exception:  # noqa: BLE001 - 关不掉也要把「发现了」这件事抛出去
+            pass
+        return texts[:80]
+    return ""
+
+
 def _clipboard_allowed() -> bool:
     """真实券商的防拷贝风控：每次 Ctrl+C 都会弹验证码，必须能整体关掉。"""
-    return os.environ.get("CN_ALLOW_CLIPBOARD", "1") != "0"
+    # 默认关闭：真实券商（如中信建投）装了防拷贝风控，一复制就弹验证码并卡住 UI。
+    # 只有明确知道当前登录的是无风控的模拟账户时，才用 CN_ALLOW_CLIPBOARD=1 打开。
+    return os.environ.get("CN_ALLOW_CLIPBOARD", "0") == "1"
 
 
 def _read_grid_via_clipboard(tab: str | None = None) -> list[dict]:
@@ -246,7 +286,7 @@ def _read_grid_via_clipboard(tab: str | None = None) -> list[dict]:
     import time
 
     if not _clipboard_allowed():
-        raise RuntimeError("CN_ALLOW_CLIPBOARD=0：剪贴板读表已禁用（真实券商会弹验证码）")
+        raise BrokerGuard("剪贴板读表已禁用（真实券商会弹验证码卡住界面），需要时设 CN_ALLOW_CLIPBOARD=1")
     from pywinauto.keyboard import send_keys
     import win32clipboard
 
@@ -259,14 +299,30 @@ def _read_grid_via_clipboard(tab: str | None = None) -> list[dict]:
     grids = win.descendants(class_name="CVirtualGridCtrl")
     if not grids:
         raise RuntimeError("未找到表格控件")
+    guard = _dismiss_guard_dialog()
+    if guard:
+        raise BrokerGuard(f"券商风控弹窗：{guard}（已取消，本次不读表）")
+
     grids[0].click_input(); time.sleep(0.3)
     send_keys("^a"); time.sleep(0.2); send_keys("^c"); time.sleep(0.8)
 
-    win32clipboard.OpenClipboard()
-    try:
-        data = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-    finally:
-        win32clipboard.CloseClipboard()
+    guard = _dismiss_guard_dialog()
+    if guard:
+        raise BrokerGuard(f"券商风控弹窗：{guard}（已取消，本次不读表）")
+
+    data = ""
+    for i in range(5):
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                data = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT) or ""
+            finally:
+                win32clipboard.CloseClipboard()
+            break
+        except Exception as exc:  # noqa: BLE001 - 剪贴板被别的程序占用很常见
+            if i == 4:
+                raise BrokerGuard(f"剪贴板被占用，放弃读表: {type(exc).__name__}") from exc
+            time.sleep(0.3)
     rows, _ = _parse_clipboard_table(data)
     return rows
 
@@ -328,7 +384,10 @@ def _read_checked(tab: str, expect_col: str, attempts: int = 3) -> list[dict]:
 
     header: list[str] = []
     for i in range(attempts):
-        rows = _read_grid_via_clipboard(tab)
+        try:
+            rows = _read_grid_via_clipboard(tab)
+        except BrokerGuard:
+            raise   # 风控弹窗：立刻上抛，重试只会继续弹验证码、把界面卡死
         if rows and expect_col in rows[0]:
             return rows
         # 空表没有数据行，用表头判断是否切换成功
@@ -430,6 +489,8 @@ def _read_with_retry(getter, *, attempts: int = 4, delay: float = 1.2):
     for i in range(attempts):
         try:
             return getter()
+        except BrokerGuard:
+            raise
         except Exception as exc:  # noqa: BLE001
             last = exc
             time.sleep(delay * (i + 1))
@@ -660,7 +721,11 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
         balance = _read_with_retry(_read_balance_via_gui, attempts=2)
     except Exception:  # noqa: BLE001 - 回退 easytrader（旧版本可用）
         balance = _read_with_retry(lambda: acct.balance)
-    raw_positions = _read_with_retry(_read_positions_via_clipboard, attempts=3, delay=1.5)
+    try:
+        raw_positions = _read_with_retry(_read_positions_via_clipboard, attempts=2, delay=1.0)
+    except BrokerGuard as exc:
+        return {"ok": False, "blocked": True,
+                "reason": f"读持仓被券商风控拦住：{exc}", "orders": []}
 
     row = balance if isinstance(balance, dict) else (balance[0] if balance else {})
 

@@ -114,11 +114,21 @@ class Ledger:
 
     # ---------- 状态机 ----------
     def bind_plan(self, *, key: str, plan_id: str) -> dict[str, Any]:
-        bound = [e for e in self.events_for(key) if e.get("event") == "BOUND"]
+        events = self.events_for(key)
+        bound = [e for e in events if e.get("event") == "BOUND"]
+        released = [e for e in events if e.get("event") == "RELEASED"]
         if bound:
-            raise AlreadyBound(f"consumption_key 已绑定 plan: {bound[-1].get('plan_id')}")
+            # 只有「释放」发生在最后一次绑定之后，才允许重新绑定：
+            # 一次消费的语义是「真的发出去过」，全部提交失败必须能重来。
+            if not released or released[-1]["seq"] < bound[-1]["seq"]:
+                raise AlreadyBound(f"consumption_key 已绑定 plan: {bound[-1].get('plan_id')}")
         return self.append({"event": "BOUND", "consumption_key": key, "plan_id": plan_id,
                             "status": "PREPARED"})
+
+    def release(self, *, key: str, reason: str) -> dict[str, Any]:
+        """释放本日消费额度：一笔都没提交成功时调用，避免把当天计划白白烧掉。"""
+        return self.append({"event": "RELEASED", "consumption_key": key,
+                            "status": "RELEASED", "reason": reason[:200]})
 
     def mark_submitting(self, *, key: str, plan_id: str, intent_id: str) -> dict[str, Any]:
         if self.status(key) == "SUBMITTING":

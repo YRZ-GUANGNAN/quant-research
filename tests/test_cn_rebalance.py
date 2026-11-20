@@ -141,3 +141,50 @@ def test_journal_roundtrip(monkeypatch, tmp_path):
     cb.append_journal({"code": "601318", "side": "sell", "status": "error: x"}, day)
     # 只有券商端确认过的才算「今日已提交」，未确认/报错的必须允许重试
     assert cb.load_sent(day) == {("600000", "buy")}
+
+
+def test_clipboard_disabled_by_default(monkeypatch):
+    """默认不读剪贴板：真实券商的防拷贝风控一复制就弹验证码并卡住界面。"""
+    monkeypatch.delenv("CN_ALLOW_CLIPBOARD", raising=False)
+    assert cb._clipboard_allowed() is False
+    with pytest.raises(cb.BrokerGuard):
+        cb._read_grid_via_clipboard("资金股票")
+
+
+def test_clipboard_can_be_enabled_explicitly(monkeypatch):
+    monkeypatch.setenv("CN_ALLOW_CLIPBOARD", "1")
+    assert cb._clipboard_allowed() is True
+
+
+def test_guard_error_is_not_retried(monkeypatch):
+    """风控弹窗必须立刻上抛：重试只会继续弹验证码。"""
+    calls = {"n": 0}
+
+    def boom(tab=None):
+        calls["n"] += 1
+        raise cb.BrokerGuard("正在拷贝数据")
+
+    monkeypatch.setenv("CN_ALLOW_CLIPBOARD", "1")
+    monkeypatch.setattr(cb, "_read_grid_via_clipboard", boom)
+    with pytest.raises(cb.BrokerGuard):
+        cb._read_positions_via_clipboard()
+    assert calls["n"] == 1
+
+
+def test_execute_target_returns_blocked_on_guard(monkeypatch):
+    monkeypatch.setenv("CN_ALLOW_CLIPBOARD", "1")
+    monkeypatch.setenv("CN_ALLOW_EXECUTION", "1")
+    monkeypatch.setattr(cb, "detect", lambda: {"ths": {"available": True, "blockers": []}})
+    monkeypatch.setattr(cb, "account_guard", lambda: (True, ""))
+    monkeypatch.setattr(cb, "_focus_trade_window", lambda: True)
+    monkeypatch.setattr(cb, "_ths_account", lambda: object())
+    monkeypatch.setattr(cb, "_read_with_retry", lambda getter, attempts=2, delay=0.0: getter())
+    monkeypatch.setattr(cb, "_read_balance_via_gui", lambda: {"可用金额": 1.0, "总资产": 1.0})
+
+    def boom():
+        raise cb.BrokerGuard("正在拷贝数据")
+
+    monkeypatch.setattr(cb, "_read_positions_via_clipboard", boom)
+    out = cb.execute_target({"600000": 0.2}, dry_run=False)
+    assert out["ok"] is False and out.get("blocked") is True
+    assert "风控" in out["reason"]

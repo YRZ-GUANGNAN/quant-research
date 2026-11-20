@@ -13,6 +13,8 @@ $env:CN_ALLOW_EXECUTION = "1"
 # 模拟阶段（先模拟稳定再实钱）：账户总资产超过 30 万就不许下单，避免误把真实大账户当模拟跑
 $env:CN_STAGE = "sim"
 $env:CN_MAX_EQUITY = "300000"
+# 模拟账户没有防拷贝风控，允许用剪贴板读持仓/委托；真实账户请保持关闭
+$env:CN_ALLOW_CLIPBOARD = "1"
 if ($NoExecute) { $env:CN_ALLOW_EXECUTION = "0" }      # 真实下单总开关（另有单笔/单日/单票/整手/现金多重限额）
 # $env:RISK_ALLOW_EXECUTION = "1"  # 风控动作走 Longbridge，A 股不适用；A 股靠目标再平衡做减仓/清仓
 
