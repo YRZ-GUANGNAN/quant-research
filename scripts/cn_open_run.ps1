@@ -10,6 +10,9 @@ Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
 $env:CN_ALLOW_EXECUTION = "1"
+# 模拟阶段（先模拟稳定再实钱）：账户总资产超过 30 万就不许下单，避免误把真实大账户当模拟跑
+$env:CN_STAGE = "sim"
+$env:CN_MAX_EQUITY = "300000"
 if ($NoExecute) { $env:CN_ALLOW_EXECUTION = "0" }      # 真实下单总开关（另有单笔/单日/单票/整手/现金多重限额）
 # $env:RISK_ALLOW_EXECUTION = "1"  # 风控动作走 Longbridge，A 股不适用；A 股靠目标再平衡做减仓/清仓
 

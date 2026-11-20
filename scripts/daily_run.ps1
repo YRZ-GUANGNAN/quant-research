@@ -90,6 +90,9 @@ Run-Step "track_actions" { python scripts/track_actions.py }
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }
+Write-Host "=== 9a/9 晋级闸门（模拟 → 实钱 条件）==="
+python scripts/promotion_check.py
+
 Write-Host "=== 9b/9 自动化看门狗（缺产物/任务没跑会告警）==="
 python scripts/automation_watchdog.py
 if ($LASTEXITCODE -eq 1) { Write-Host "[warn] 看门狗报异常，见 reports/automation_health_*.json 与 state/ALERT.json" }

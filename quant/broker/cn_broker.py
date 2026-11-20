@@ -31,6 +31,7 @@ class Limits:
     lot_size: int = 100
     max_position_weight: float = 0.30         # 单票目标权重上限
     cash_buffer: float = 0.03                 # 现金留底比例
+    max_equity_cny: float = 0.0               # 账户总资产上限（0=不限；模拟阶段用它拦住真实大账户）
     price_buffer_buy: float = 0.02            # 买入限价上浮，提高成交概率
     price_buffer_sell: float = 0.02           # 卖出限价下浮
 
@@ -152,6 +153,34 @@ def _find_trade_window():
         if "网上股票交易系统" in (w.window_text() or ""):
             return w
     return None
+
+
+
+def account_label() -> str:
+    """从窗口标题取当前登录的账户标签，例如 mncg110(****9069) / 北京联通xc50(****1969)。"""
+    import re
+
+    try:
+        title = _trade_window().window_text() or ""
+    except RuntimeError:
+        return ""
+    m = re.search(r"-\s*([^-()]+?\(\*+\d+\))\s*-", title)
+    return m.group(1).strip() if m else title.strip()
+
+
+def _expected_account() -> str:
+    return os.environ.get("CN_EXPECT_ACCOUNT", "").strip()
+
+
+def account_guard() -> tuple[bool, str]:
+    """CN_EXPECT_ACCOUNT 指定的账户才允许下单；不匹配直接拒绝。"""
+    expect = _expected_account()
+    if not expect:
+        return True, ""
+    got = account_label()
+    if expect.lower() in got.lower():
+        return True, ""
+    return False, f"当前登录账户是「{got or '未知'}」，与预期「{expect}」不符，拒绝下单"
 
 
 def _trade_window(wait_seconds: int = 60):
@@ -621,6 +650,9 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
     info = detect()
     if not info["ths"]["available"]:
         return {"ok": False, "reason": "同花顺通道不可用：" + "；".join(info["ths"]["blockers"]), "orders": []}
+    ok_acct, why = account_guard()
+    if not ok_acct:
+        return {"ok": False, "blocked": True, "reason": why, "orders": []}
 
     _focus_trade_window()
     acct = _ths_account()
@@ -654,6 +686,11 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
         }
     cash = _num(row, "可用金额", "可用资金", "资金可用金额")
     equity = _num(row, "总资产", "资产总值") or (cash + sum(h["qty"] * h["price"] for h in holdings.values()))
+
+    if limits.max_equity_cny and equity > limits.max_equity_cny:
+        return {"ok": False, "blocked": True,
+                "reason": f"账户总资产 {equity:,.0f} 超过模拟阶段上限 {limits.max_equity_cny:,.0f}，拒绝下单",
+                "orders": []}
 
     need_px = [c for c in weights if c not in holdings]
     plan, notes = plan_orders(weights, cash=cash, equity=equity, holdings=holdings,
@@ -724,13 +761,13 @@ def main(argv: list[str] | None = None) -> int:
     # 兼容两种格式：{code: weight} 或 {"weights": {code: weight}, ...元信息}
     weights = raw.get("weights", raw) if isinstance(raw, dict) else {}
     weights = {str(k): float(v) for k, v in weights.items() if isinstance(v, (int, float))}
-    limits = Limits()
+    limits = Limits(max_equity_cny=float(os.environ.get("CN_MAX_EQUITY", "0") or 0))
     if args.max_orders:
         limits.max_orders_per_run = args.max_orders
     result = execute_target(weights, dry_run=not args.execute, limits=limits)
     print(json.dumps(result, ensure_ascii=False, indent=2)[:4000])
-    if "CN_ALLOW_EXECUTION" in str(result.get("reason", "")):
-        return 3   # 未开真实下单开关：预期内跳过，不算故障
+    if "CN_ALLOW_EXECUTION" in str(result.get("reason", "")) or result.get("blocked"):
+        return 3   # 未开真实下单开关 / 账户不匹配：预期内跳过，不算故障
     return 0 if result.get("ok") or result.get("dry_run") else 1
 
 
