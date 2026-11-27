@@ -89,11 +89,16 @@ Run-Step "run_paper" { python scripts/run_paper.py }
 Write-Host "=== 6/9 目标快照（周期内复用）==="
 Run-Step "snapshot" { python scripts/build_target_snapshot.py }
 
+Write-Host "=== 7b/9 下单前模拟（港股）==="
+python scripts/simulate_plan.py --market hk
+$simHkOk = ($LASTEXITCODE -eq 0)
+if (-not $simHkOk) { Write-Host "[warn] 港股计划模拟暴露问题，本次跳过真实下单" }
+
 Write-Host "=== 8/9 券商模拟盘：建仓 + 再平衡 ==="
 Run-Step "paper_live" { python scripts/paper_live.py }
 
 
-Run-Step "execute_hk" { python -m quant.automation.execution --market hk --execute }
+if ($simHkOk) { Run-Step "execute_hk" { python -m quant.automation.execution --market hk --execute } } else { Write-Host "[skip] execute_hk（模拟未通过）" }
 
 Write-Host "=== 8b/9 风险识别 → 动作（默认 dry-run）==="
 Run-Step "risk_act_hk" { python scripts/risk_act.py --market hk }

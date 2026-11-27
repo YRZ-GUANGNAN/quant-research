@@ -41,7 +41,7 @@ PROXY_SYMBOLS = {cfg["symbol"] for cfg in PROXIES.values()}
 @dataclass
 class Policy:
     """订单硬限额（全部默认保守；命令行/配置只能收紧）。"""
-    max_orders_per_run: int = 40
+    max_orders_per_run: int = 80
     max_orders_per_day: int = 80
     max_notional_per_order_usd: float = 50_000.0
     max_notional_per_day_usd: float = 400_000.0
@@ -175,106 +175,61 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
             last = float(q.get("last") or 0)
             if last > 0:
                 market_value += qty * last
-    equity = max(0.0, cash) + market_value
-    sleeve_weight = 0.75 if market == "us" else 0.25
-    budget = equity * sleeve_weight * (1 - policy.cash_buffer)
+    equity = max(0.0, cash) + market_value   # 账户口径，用于换手上限与碎仓阈值
+    # 预算口径：本袖套当前市值（组合内再平衡）+ 可用现金里属于本袖套的份额。
+    # 之前用「账户权益 × 固定袖套比例」，这个比例与实际资金分布对不上，
+    # 导致买入额永远只有应有的一半左右，权重怎么调都回不到目标（HK 实测残留 74%）。
+    sleeve_capital = market_value + max(0.0, cash) * max(0.0, min(1.0, cash_share))
+    budget = sleeve_capital * (1 - policy.cash_buffer)
+    w_sum = sum(v for v in weights.values() if v > 0) or 1.0
+    weights = {k: v / w_sum for k, v in weights.items()}   # 归一化：目标只描述组合结构
     cash_cap = max(0.0, cash) * max(0.0, min(1.0, cash_share)) * (1 - policy.cash_buffer)  # 买入总额上限
 
-    orders, notional = [], 0.0
-    orphan_sells, expected_cash = [], 0.0
-    # 目标外持仓：清仓（释放现金，避免旧仓位残留）
-    orphan_candidates = []
-    for sym, qty in positions.items():
-        if not policy.cleanup_orphans:
-            break
-        if sym in PROXY_SYMBOLS:
-            continue   # 代理袖套的仓位不归这个袖套清
-        if not (sym.endswith(suffix) and sym not in weights and sym not in pending and qty > 0):
-            continue
-        q = quotes.get(sym) or {}
-        last = float(q.get("last") or 0)
-        if last <= 0:
-            continue
-        value = qty * last
-        if equity > 0 and value / equity < policy.orphan_min_weight:
-            continue   # 零碎仓位不动，省手续费
-        orphan_candidates.append((value, sym, qty, last))
-    orphan_candidates.sort(reverse=True)
-    orphan_budget = equity * policy.orphan_max_turnover
-    for value, sym, qty, last in orphan_candidates:
-        if expected_cash + value > orphan_budget and orphan_sells:
-            continue   # 本轮换手已到上限，剩下的下次再清
-        px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
-        orphan_sells.append({"symbol": sym, "side": "sell", "qty": int(qty), "price": px,
-                             "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
-                             "notional": round(qty * px, 2)})
-        expected_cash += qty * px
+    # 统一走通用再平衡器：先卖后买、碎仓不动、超配减仓、目标外清仓
+    from quant.automation.rebalance import Limits as RebLimits
+    from quant.automation.rebalance import plan_rebalance
 
-    # 减仓：实际权重明显超目标 → 卖出差额（先卖后买，卖出的钱当天能用来买）
-    trim_sells = []
-    for sym, w in weights.items():
-        if sym in pending:
+    holdings = {sym: qty for sym, qty in positions.items()
+                if sym.endswith(suffix) and sym not in PROXY_SYMBOLS}
+    prices = {sym: float((quotes.get(sym) or {}).get("last") or 0) for sym in universe}
+    limits = RebLimits(
+        lot_size=100 if market == "hk" else 1,
+        min_notional=policy.min_order_notional_usd,
+        max_order_notional=policy.max_notional_per_order_usd,
+        max_orders=policy.max_orders_per_run,
+        cash_buffer=policy.cash_buffer,
+        trim_tolerance=policy.trim_tolerance,
+        orphan_min_weight=policy.orphan_min_weight,
+        orphan_max_turnover=policy.orphan_max_turnover,
+    )
+    targets = {sym: w for sym, w in weights.items() if sym not in PROXY_SYMBOLS}
+    if not policy.cleanup_orphans:
+        holdings = {sym: q for sym, q in holdings.items() if sym in targets}
+    # 注意：cash 只能是真实现金。之前误把袖套市值加进来当现金用，
+    # 结果买单按「市值 + 现金」下单，模拟出来现金直接变负数。
+    plan_orders, notes = plan_rebalance(
+        targets, cash=max(0.0, cash) * max(0.0, min(1.0, cash_share)),
+        capital=budget, holdings=holdings, prices=prices, limits=limits,
+    )
+    # 价格加工：港股按 tick 取合法价，美股用 ±0.5% 的限价提高成交概率
+    for order in plan_orders:
+        ref = prices.get(order["symbol"], 0.0)
+        if ref <= 0:
             continue
-        held_qty = positions.get(sym, 0.0)
-        if held_qty <= 0:
-            continue
-        q = quotes.get(sym) or {}
-        last = float(q.get("last") or 0)
-        if last <= 0:
-            continue
-        target_value = budget * w
-        current_value = held_qty * last
-        if current_value - target_value <= equity * policy.trim_tolerance:
-            continue
-        lot = 100 if market == "hk" else 1
-        excess_value = current_value - target_value
-        qty = int((excess_value / last) // lot * lot) if market == "hk" else int(excess_value / last)
-        qty = min(qty, int(held_qty))
-        if qty <= 0 or qty * last < policy.min_order_notional_usd:
-            continue
-        px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
-        trim_sells.append({"symbol": sym, "side": "sell", "qty": qty, "price": px,
-                           "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
-                           "notional": round(qty * px, 2)})
-        expected_cash += qty * px
-
-    # 加仓：已有持仓按目标权重补足；无持仓的新标的按目标买入
-    for sym, w in weights.items():
-        if sym in pending:
-            continue
-        q = quotes.get(sym)
-        if not q or not q.get("last"):
-            continue
-        price = float(q["last"])
-        target = budget * w
-        current = positions.get(sym, 0.0) * price
-        gap = target - current
-        if gap < policy.min_order_notional_usd:
-            continue
-        lot = 100 if market == "hk" else 1
-        qty = int((gap / price) // lot * lot) if market == "hk" else int(gap / price)
-        if qty <= 0:
-            continue
-        px = round(price + _tick_hk(price), 3) if market == "hk" else round(price * 1.005, 2)
-        value = qty * px
-        if value > policy.max_notional_per_order_usd:
-            continue
-        if len(orders) >= policy.max_orders_per_run:
-            break
-        if notional + value > min(policy.max_notional_per_day_usd, cash_cap) + expected_cash * 0.95:
-            break
-        orders.append({"symbol": sym, "side": "buy", "qty": qty, "price": px,
-                       "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
-                       "notional": round(value, 2)})
-        notional += value
-
-    plan_orders = orphan_sells + trim_sells + orders
+        if market == "hk":
+            tick = _tick_hk(ref)
+            order["price"] = round(ref - tick if order["side"] == "sell" else ref + tick, 3)
+        else:
+            order["price"] = round(ref * (0.995 if order["side"] == "sell" else 1.005), 2)
+        order["order_type"] = policy.allowed_order_type
+        order["tif"] = policy.allowed_tif
+    plan_orders = [o for o in plan_orders if o.get("price")]
     if not plan_orders:
         return {"ok": False,
                 "reason": f"{ccy} 可用现金 {cash:,.0f}，无可执行订单（已达标或现金不足）",
                 "orders": []}
     return {"ok": True, "market": market, "currency": ccy, "cash": cash,
-            "budget": round(budget, 2), "orders": plan_orders,
+            "budget": round(budget, 2), "orders": plan_orders, "notes": notes,
             "snapshot_rebalance_date": sleeve.get("rebalance_date"),
             "snapshot_next": sleeve.get("next_rebalance_date")}
 
@@ -295,7 +250,7 @@ def _build_proxy_plan(market: str, policy: Policy, cash_share: float = 1.0) -> d
         qty * float((_quotes([s2]) or {}).get(s2, {}).get("last") or 0)
         for s2, qty in positions.items() if s2.endswith(".US" if ccy == "USD" else ".HK")
     )
-    equity = max(0.0, cash) + market_value
+    equity = max(0.0, cash) + market_value   # 账户口径，用于换手上限与碎仓阈值
     target = equity * cfg["sleeve_weight"] * (1 - policy.cash_buffer)
     current = held * last
     gap = target - current
