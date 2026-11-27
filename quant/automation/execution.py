@@ -353,6 +353,19 @@ WORKING_STATUSES = {"New", "NotReported", "Submitted", "PartFilled", "PartialFil
                     "WaitingSubmit", "Filling"}
 
 
+
+def _buy_power(ccy: str) -> float | None:
+    """券商侧真实可用购买力（跨币种 + 融资额度）。只用来做上限保护，不用来放大仓位。"""
+    try:
+        for acct in _cli(["assets"]) or []:
+            if str(acct.get("currency", "")).upper() == ccy.upper():
+                power = acct.get("buy_power")
+                return float(power) if power is not None else None
+    except (RuntimeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        print(f"[exec] 读取购买力失败（跳过上限保护）: {type(exc).__name__}")
+    return None
+
+
 def _wait_sells(symbols: set[str], *, timeout: float = 90.0, interval: float = 6.0) -> dict:
     """卖出后等成交（有上限），再去买。
 
@@ -468,7 +481,17 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
     if sells and buys and any(r.get("status") == "submitted" for r in results):
         plan["sell_wait"] = _wait_sells({o["symbol"] for o in sells})
 
+    # 买单金额不得超过券商侧购买力：这是"Insured Credit Limit"拒单的最后一道闸
+    budget = _buy_power(ccy)
+    spent = 0.0
     for item in buys:
+        if budget is not None:
+            value = float(item.get("notional") or item["qty"] * item["price"])
+            if spent + value > budget * 0.98:
+                results.append({**item, "status": "skipped: 超出券商购买力"})
+                print(f"[exec] 跳过 {item['symbol']}：本笔 {value:,.0f} 会使累计买单超过购买力 {budget:,.0f}")
+                continue
+            spent += value
         results.append(_submit(item))
     plan["results"] = results
     if not any(r.get("order_id") for r in results):

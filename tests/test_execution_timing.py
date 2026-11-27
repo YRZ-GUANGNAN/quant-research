@@ -39,3 +39,16 @@ def test_wait_sells_matches_broker_symbol_format(monkeypatch):
     monkeypatch.setattr(execution, "_cli", lambda args, timeout=40: rows)
     out = execution._wait_sells({"BRK-B.US"}, timeout=1, interval=0.01)
     assert out["BRK-B.US"]["status"] == "Filled"
+
+
+def test_buy_power_helper_reads_assets(monkeypatch):
+    monkeypatch.setattr(execution, "_cli",
+                        lambda args, timeout=40: [{"currency": "USD", "buy_power": "1606194.45"}])
+    assert execution._buy_power("USD") == 1606194.45
+
+
+def test_buy_power_helper_handles_failure(monkeypatch):
+    def boom(args, timeout=40):
+        raise RuntimeError("network")
+    monkeypatch.setattr(execution, "_cli", boom)
+    assert execution._buy_power("USD") is None
