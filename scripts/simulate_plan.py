@@ -58,9 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="下单前模拟")
     ap.add_argument("--market", choices=["us", "hk"], required=True)
     ap.add_argument("--cash-share", type=float, default=1.0)
+    ap.add_argument("--vol-target", type=float, default=None)
     args = ap.parse_args(argv)
 
-    plan = build_plan(args.market, Policy(), args.cash_share)
+    policy = Policy()
+    if args.vol_target:
+        policy.vol_target = args.vol_target
+    plan = build_plan(args.market, policy, args.cash_share)
     if not plan.get("orders"):
         print(f"[sim] {args.market.upper()} 无可执行计划：{plan.get('reason', '')}")
         return 3

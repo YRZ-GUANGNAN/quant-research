@@ -83,12 +83,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "=== 3b/8 下单前模拟（执行后漂移/现金是否够）==="
-python scripts/simulate_plan.py --market us --cash-share 0.35
+python scripts/simulate_plan.py --market us --cash-share 0.35 --vol-target 0.15
 $simOk = ($LASTEXITCODE -eq 0)
 if (-not $simOk) { Write-Host "[warn] 模拟暴露问题，本次跳过真实下单（见 reports/plan_simulation_us.json）" }
 
 Write-Host "=== 4/8 美股下单 + 再平衡（35% 现金份额）==="
-if ($simOk) { Run-Step "exec_us" { python -m quant.automation.execution --market us --execute --cash-share 0.35 } } else { Write-Host "[skip] exec_us（模拟未通过）" }
+if ($simOk) { Run-Step "exec_us" { python -m quant.automation.execution --market us --execute --cash-share 0.35 --vol-target 0.15 } } else { Write-Host "[skip] exec_us（模拟未通过）" }
 
 Write-Host "=== 4b/8 A 股代理袖套（ASHR.US，替代无法交易的沪深港通）==="
 Run-Step "exec_cn_proxy" { python -m quant.automation.execution --market cn_proxy --execute --cash-share 0.65 }

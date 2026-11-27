@@ -56,6 +56,9 @@ class Policy:
     orphan_max_turnover: float = 0.30     # 单轮最多清 30% 权益，避免一天砸完
     trim_tolerance: float = 0.02          # 超过目标权重 2 个百分点才减仓
     price_buffer: float = 0.008           # 限价缓冲：买高 0.8%、卖低 0.8%，保证能成交
+    vol_target: float | None = None        # 组合层波动率目标（None=关闭；美股实测 0.15 有效）
+    vol_lookback: int = 20
+    vol_min_exposure: float = 0.5
 
 
 def _cli_once(args: list[str], timeout: int = 40) -> object:
@@ -105,6 +108,29 @@ def market_sessions() -> dict[str, str]:
         return {}
     return out
 
+
+
+
+def _nav_values(market: str) -> list[float]:
+    """读该市场的历史净值序列（reports/nav_history.csv），用于波动率目标。"""
+    import csv
+
+    path = ROOT / "reports" / "nav_history.csv"
+    if not path.exists():
+        return []
+    out = []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh):
+                if str(row.get("market", "")).lower() != market:
+                    continue
+                try:
+                    out.append(float(row["equity"]))
+                except (KeyError, TypeError, ValueError):
+                    continue  # noqa: silent-ok - 坏行跳过
+    except OSError:
+        return []
+    return out
 
 
 def broker_symbol(sym: str) -> str:
@@ -207,7 +233,17 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     # 之前用「账户权益 × 固定袖套比例」，这个比例与实际资金分布对不上，
     # 导致买入额永远只有应有的一半左右，权重怎么调都回不到目标（HK 实测残留 74%）。
     sleeve_capital = market_value + max(0.0, cash) * max(0.0, min(1.0, cash_share))
-    budget = sleeve_capital * (1 - policy.cash_buffer)
+    # 组合层波动率目标：高波动时缩减目标仓位（只用历史净值，样本不足不缩放）
+    expo, vol_diag = 1.0, {"reason": "未启用"}
+    if policy.vol_target:
+        from quant.automation.vol_target import exposure_factor
+
+        expo, vol_diag = exposure_factor(_nav_values(market), policy.vol_target,
+                                         lookback=policy.vol_lookback,
+                                         min_exposure=policy.vol_min_exposure)
+        if expo < 1.0:
+            print(f"[exec] 波动率目标生效：仓位 ×{expo:.2f}（已实现波动 {vol_diag.get('realized_vol')}）")
+    budget = sleeve_capital * (1 - policy.cash_buffer) * expo
     w_sum = sum(v for v in weights.values() if v > 0) or 1.0
     weights = {k: v / w_sum for k, v in weights.items()}   # 归一化：目标只描述组合结构
     cash_cap = max(0.0, cash) * max(0.0, min(1.0, cash_share)) * (1 - policy.cash_buffer)  # 买入总额上限
@@ -259,6 +295,7 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
                 "orders": []}
     return {"ok": True, "market": market, "currency": ccy, "cash": cash,
             "budget": round(budget, 2), "orders": plan_orders, "notes": notes,
+            "exposure_factor": expo, "vol_diag": vol_diag,
             "snapshot_rebalance_date": sleeve.get("rebalance_date"),
             "snapshot_next": sleeve.get("next_rebalance_date")}
 
@@ -389,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--execute", action="store_true", help="真正提交（还需 LB_ALLOW_EXECUTION=1）")
     ap.add_argument("--cash-share", type=float, default=1.0,
                     help="本袖套可使用的现金份额（0-1），用于多袖套分配")
+    ap.add_argument("--vol-target", type=float, default=None,
+                    help="组合层波动率目标（如 0.15）；不传则沿用 Policy 默认")
     ap.add_argument("--pass", dest="pass_no", type=int, default=1,
                     help="当日第几轮补单（1=首轮，2=换手上限导致的补单，最多 2）")
     args = ap.parse_args(argv)
@@ -396,8 +435,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.pass_no not in (1, 2):
         print("[exec] --pass 只允许 1 或 2（一天最多两轮，避免过度换手）")
         return 1
+    policy = Policy()
+    if args.vol_target:
+        policy.vol_target = args.vol_target
     result = execute(args.market, dry_run=not args.execute, cash_share=args.cash_share,
-                     pass_no=args.pass_no)
+                     policy=policy, pass_no=args.pass_no)
     print(json.dumps(result, ensure_ascii=False, indent=2)[:4000])
     if result.get("blocked"):
         # 非交易时段 / 本日已消费：预期内的跳过，不算失败（自动化里 exit 1 只留给真故障）
