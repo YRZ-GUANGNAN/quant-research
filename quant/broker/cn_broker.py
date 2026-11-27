@@ -639,6 +639,34 @@ def plan_orders(
     return out, notes
 
 
+
+def submit_order(code: str, side: str, qty: int, limit_price: float, *,
+                 acct=None, day=None) -> dict:
+    """提交单笔 A 股委托并记台账（执行层与风控层共用）。
+
+    之前风控自己调 acct.buy/sell，既不记台账也不做整手校验，
+    等于在同一个账户上有两种下单行为。
+    """
+    qty = int(qty) // 100 * 100
+    if qty <= 0:
+        return {"code": code, "side": side, "qty": qty, "status": "error: 数量不足一手"}
+    if acct is None:
+        acct = _ths_account()
+    record = {"code": code, "side": side, "qty": qty,
+              "limit_price": round(float(limit_price), 2),
+              "ts": datetime.datetime.now().isoformat(timespec="seconds")}
+    try:
+        if side == "sell":
+            acct.sell(code, price=float(limit_price), amount=qty)
+        else:
+            acct.buy(code, price=float(limit_price), amount=qty)
+        record["status"] = "sent"
+    except Exception as exc:  # noqa: BLE001 - 单笔失败要如实记账，不能吞掉
+        record["status"] = f"error: {type(exc).__name__}: {str(exc)[:80]}"
+    append_journal(record, day)
+    return record
+
+
 def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits | None = None,
                    day=None) -> dict:
     """按目标权重做一次完整再平衡（先卖后买），默认只算不下单。"""
@@ -714,15 +742,8 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
         buf = limits.price_buffer_sell if o["side"] == "sell" else limits.price_buffer_buy
         limit_px = round(o["ref_price"] * (1 - buf if o["side"] == "sell" else 1 + buf), 2)
         record = {**o, "limit_price": limit_px, "ts": datetime.datetime.now().isoformat(timespec="seconds")}
-        try:
-            if o["side"] == "sell":
-                acct.sell(o["code"], price=limit_px, amount=o["qty"])
-            else:
-                acct.buy(o["code"], price=limit_px, amount=o["qty"])
-            record["status"] = "submitted"
-        except Exception as exc:  # noqa: BLE001 - 单笔失败不影响其余，逐笔记账
-            record["status"] = f"error: {str(exc)[:80]}"
-        append_journal(record, day)
+        record = submit_order(o["code"], o["side"], o["qty"], limit_px, acct=acct, day=day)
+        record.update({"ref_price": o["ref_price"], "reason": o["reason"]})
         results.append(record)
 
     # 回读「当日委托」确认券商真的收下了：easytrader 的 sell/buy 在休市或被拒时

@@ -188,3 +188,45 @@ def test_execute_target_returns_blocked_on_guard(monkeypatch):
     out = cb.execute_target({"600000": 0.2}, dry_run=False)
     assert out["ok"] is False and out.get("blocked") is True
     assert "风控" in out["reason"]
+
+
+def test_submit_order_enforces_lot_and_journals(tmp_path, monkeypatch):
+    """单笔提交：不足一手拒绝、成功记账、失败如实记账。"""
+    monkeypatch.setattr(cb, "ROOT", tmp_path)
+    calls = []
+
+    class _Acct:
+        def buy(self, code, price=None, amount=None):
+            calls.append(("buy", code, amount))
+
+        def sell(self, code, price=None, amount=None):
+            calls.append(("sell", code, amount))
+
+    rec = cb.submit_order("600000", "buy", 250, 10.05, acct=_Acct())
+    assert rec["status"] == "sent" and rec["qty"] == 200
+    assert calls == [("buy", "600000", 200)]
+
+    bad = cb.submit_order("600000", "buy", 50, 10.0, acct=_Acct())
+    assert "error" in bad["status"]
+
+    class _Boom:
+        def buy(self, *a, **kw):
+            raise RuntimeError("券商拒单")
+
+    err = cb.submit_order("600000", "buy", 100, 10.0, acct=_Boom())
+    assert err["status"].startswith("error:") and "券商拒单" in err["status"]
+
+    sent = cb.load_sent()
+    assert ("600000", "buy") not in sent   # sent 状态不算已确认，允许重试
+
+
+def test_risk_cn_submit_uses_shared_implementation(monkeypatch):
+    from quant.automation import risk_execute as rx
+
+    called = []
+    monkeypatch.setattr(cb, "submit_order",
+                        lambda code, side, qty, price, **kw: called.append((code, side, qty, price))
+                        or {"status": "sent"})
+    out = rx._cn_submit(rx.OrderPlan("600000", "buy", 200, 10.0, "test", ""))
+    assert called == [("600000", "buy", 200, 10.0)]
+    assert out["status"] == "submitted"

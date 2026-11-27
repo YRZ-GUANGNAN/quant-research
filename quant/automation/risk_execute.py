@@ -90,14 +90,13 @@ def _lb_submit(order: OrderPlan) -> dict:
 
 
 def _cn_submit(order: OrderPlan) -> dict:
+    """A 股下单走 cn_broker 的统一实现（整手校验 + 台账）。"""
     from quant.broker import cn_broker
 
-    acct = cn_broker._ths_account()
-    if order.side == "sell":
-        acct.sell(order.symbol, price=order.price, amount=int(order.qty))
-    else:
-        acct.buy(order.symbol, price=order.price, amount=int(order.qty))
-    return {"symbol": order.symbol, "side": order.side, "status": "submitted"}
+    rec = cn_broker.submit_order(order.symbol, order.side, int(order.qty), order.price)
+    return {"symbol": order.symbol, "side": order.side,
+            "status": "submitted" if rec.get("status") == "sent" else rec.get("status", "unknown"),
+            "journal": rec}
 
 
 
