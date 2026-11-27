@@ -115,3 +115,53 @@ def test_limit_price_has_buffer():
                           pos, quotes, rx.Limits())
     sell = [o for o in orders if o.side == "sell"][0]
     assert sell.price < 200.0   # 卖单必须低于最新价，否则挂不上
+
+
+def test_risk_skips_symbols_with_pending_orders(tmp_path, monkeypatch):
+    """有在途委托的标的，风控不能重复卖（再平衡的卖单可能还没成交）。"""
+    import quant.automation.risk_guard as rg
+
+    monkeypatch.setattr(rx, "ROOT", tmp_path)
+    monkeypatch.setenv("RISK_ALLOW_EXECUTION", "1")
+    _trading(monkeypatch)
+    monkeypatch.setattr(rx, "_pending_symbols", lambda: {"NVDA.US"})
+    monkeypatch.setattr(rx, "_buy_power", lambda: None)
+    calls = []
+
+    def fake_submit(order):
+        calls.append(order.symbol)
+        return {"symbol": order.symbol, "side": order.side, "status": "submitted", "order_id": "x"}
+
+    monkeypatch.setattr(rx, "_lb_submit", fake_submit)
+    positions = {"NVDA.US": {"qty": 100, "last": 200.0}}
+    quotes = {"NVDA.US": {"last": 200.0}}
+    out = rx.execute([rg.Action(action="exit", symbol="NVDA.US", reason="止损")],
+                     market="us", dry_run=False, positions=positions, quotes=quotes,
+                     limits=rx.Limits())
+    assert calls == []
+    assert out["ok"] is True
+
+
+def test_risk_buy_respects_buy_power(tmp_path, monkeypatch):
+    """风控的替换买单也不能超过券商购买力。"""
+    import quant.automation.risk_guard as rg
+
+    monkeypatch.setattr(rx, "ROOT", tmp_path)
+    monkeypatch.setenv("RISK_ALLOW_EXECUTION", "1")
+    _trading(monkeypatch)
+    monkeypatch.setattr(rx, "_pending_symbols", lambda: set())
+    monkeypatch.setattr(rx, "_buy_power", lambda: 1_000.0)
+    calls = []
+
+    def fake_submit(order):
+        calls.append(order.symbol)
+        return {"symbol": order.symbol, "side": order.side, "status": "submitted", "order_id": "x"}
+
+    monkeypatch.setattr(rx, "_lb_submit", fake_submit)
+    # exit 带替换标的：卖出 NVDA 会生成一笔买入 HD
+    positions = {"NVDA.US": {"qty": 100, "last": 200.0}}
+    quotes = {"NVDA.US": {"last": 200.0}, "HD.US": {"last": 300.0}}
+    action = rg.Action(action="exit", symbol="NVDA.US", reason="止损", replace_with="HD.US")
+    rx.execute([action], market="us", dry_run=False, positions=positions, quotes=quotes,
+               limits=rx.Limits())
+    assert "HD.US" not in calls      # 买入金额远超 1000 购买力上限

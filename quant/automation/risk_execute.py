@@ -142,6 +142,29 @@ def append_journal(record: dict, day=None) -> None:
 
 
 
+
+def _pending_symbols() -> set[str]:
+    """有在途委托的标的（复用执行层的判定，口径保持一致）。"""
+    try:
+        from quant.automation.execution import _pending_symbols as impl
+
+        return set(impl())
+    except Exception as exc:  # noqa: BLE001 - 查不到就当作没有在途委托
+        print(f"[risk] 查询在途委托失败（跳过去重）: {type(exc).__name__}")
+        return set()
+
+
+def _buy_power() -> float | None:
+    """券商侧可用购买力（跨币种 + 融资额度），只作上限。"""
+    try:
+        from quant.automation.execution import _buy_power as impl
+
+        return impl("USD")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[risk] 查询购买力失败（跳过上限）: {type(exc).__name__}")
+        return None
+
+
 def _planned_today(market: str) -> set[str]:
     """读当天「期望订单」里出现过的标的（再平衡/模拟写入的）。"""
     try:
@@ -184,6 +207,29 @@ def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dic
         orders = [o for o in orders if o.symbol not in already]
         if len(orders) != before:
             print(f"[risk] 跳过 {before - len(orders)} 笔：这些标的今天已由再平衡安排过")
+
+    # 还有在途委托的标的也不能碰：再平衡的卖单可能刚提交、还没成交，
+    # 此时持仓里仍看得到它，风控再卖一次就是超额卖出。
+    pending = _pending_symbols()
+    if pending:
+        before = len(orders)
+        orders = [o for o in orders if o.symbol not in pending]
+        if len(orders) != before:
+            print(f"[risk] 跳过 {before - len(orders)} 笔：这些标的有在途委托")
+
+    # 买单不能超过券商侧购买力（与执行层同一条底线）
+    budget = _buy_power()
+    if budget is not None:
+        kept, spent = [], 0.0
+        for o in orders:
+            if o.side == "buy":
+                value = float(o.qty) * float(o.price)
+                if spent + value > budget * 0.98:
+                    print(f"[risk] 跳过买单 {o.symbol}：会超过购买力 {budget:,.0f}")
+                    continue
+                spent += value
+            kept.append(o)
+        orders = kept
     results = []
     for o in orders:
         if (o.symbol, o.side) in sent:
