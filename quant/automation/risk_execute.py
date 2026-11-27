@@ -145,6 +145,18 @@ def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dic
     if market == "cn" and os.environ.get("CN_ALLOW_EXECUTION") != "1":
         return {"ok": False, "reason": "A 股需 CN_ALLOW_EXECUTION=1", "orders": []}
 
+    # 休市发单只会被券商拒掉，还会让对账出现假「missing」
+    try:
+        from quant.automation.execution import market_sessions
+
+        sess = market_sessions().get({"us": "US", "hk": "HK", "cn": "CN"}.get(market, ""), "")
+        if sess != "Trading":
+            return {"ok": False, "blocked": True,
+                    "reason": f"{market.upper()} 当前 {sess or 'UNKNOWN'}，非交易时段不发风控单",
+                    "orders": []}
+    except Exception as exc:  # noqa: BLE001 - 时段查询失败不阻断，但记录
+        print(f"[risk] 时段查询失败（继续执行）: {type(exc).__name__} {str(exc)[:60]}")
+
     submit = _cn_submit if market == "cn" else _lb_submit
     sent = load_sent()
     results = []

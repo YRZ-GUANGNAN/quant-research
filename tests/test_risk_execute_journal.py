@@ -24,9 +24,16 @@ def test_journal_roundtrip(tmp_path: Path, monkeypatch):
     assert rx.load_sent(day) == {("NVDA.US", "sell")}
 
 
+def _trading(monkeypatch):
+    """把时段查询固定为开市，避免测试依赖真实交易时段。"""
+    import quant.automation.execution as ex
+    monkeypatch.setattr(ex, "market_sessions", lambda: {"US": "Trading", "HK": "Trading", "CN": "Trading"})
+
+
 def test_execute_skips_already_sent(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(rx, "ROOT", tmp_path)
     monkeypatch.setenv("RISK_ALLOW_EXECUTION", "1")
+    _trading(monkeypatch)
     calls: list[str] = []
 
     def fake_submit(order):
@@ -55,3 +62,15 @@ def test_to_orders_dry_run_has_no_journal_side_effect(tmp_path: Path, monkeypatc
     out = rx.execute([], market="us", dry_run=True, positions={}, quotes={}, limits=rx.Limits())
     assert out["dry_run"] is True
     assert not (tmp_path / "state").exists()
+
+
+def test_execute_blocked_outside_session(tmp_path: Path, monkeypatch):
+    """休市不该发风控单：否则全被拒，对账还会出现假 missing。"""
+    import quant.automation.execution as ex
+
+    monkeypatch.setattr(rx, "ROOT", tmp_path)
+    monkeypatch.setenv("RISK_ALLOW_EXECUTION", "1")
+    monkeypatch.setattr(ex, "market_sessions", lambda: {"US": "Closed", "HK": "Closed", "CN": "Closed"})
+    out = rx.execute([], market="us", dry_run=False, positions={}, quotes={}, limits=rx.Limits())
+    assert out.get("blocked") is True
+    assert "非交易时段" in str(out.get("reason"))

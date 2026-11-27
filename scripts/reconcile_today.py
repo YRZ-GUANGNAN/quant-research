@@ -60,7 +60,23 @@ def main() -> int:
     out = ROOT / "reports" / f"reconcile_{args.market}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return 0 if result["ok"] else 1
+    if result["ok"]:
+        return 0
+
+    # 休市时「期望有单、实际没有」属于正常：单子根本没发出去（风控/时段门控拦截）。
+    # 这种情况不该让整个日更流程判失败，标记为待下一交易日处理。
+    missing_only = result["mismatched"] and all(
+        str(m.get("status")) == "missing" for m in result["mismatched"])
+    try:
+        from quant.automation.execution import market_sessions
+
+        sess = market_sessions().get("US" if args.market == "us" else "HK", "")
+    except Exception:  # noqa: BLE001 - 查不到时段就按异常处理，保守
+        sess = ""
+    if missing_only and sess != "Trading":
+        print(f"[reconcile] {args.market}: {sess or 'UNKNOWN'} 非交易时段，{len(result['mismatched'])} 笔待下一交易日执行")
+        return 3
+    return 1
 
 
 if __name__ == "__main__":

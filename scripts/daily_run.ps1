@@ -16,6 +16,22 @@ $logPath = Join-Path $logDir "daily_run_$stamp.log"
 try { Start-Transcript -Path $logPath -Append | Out-Null } catch { Write-Host "[warn] 日志转录开启失败: $($_.Exception.Message)" }
 Get-ChildItem $logDir -Filter "daily_run_*.log" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# ---------- 运行锁：同一时间只允许一个日更流程（15:40/16:40/22:30 会重叠） ----------
+$lockPath = Join-Path (Get-Location) "state\daily_run.lock"
+New-Item -ItemType Directory -Force -Path (Split-Path $lockPath) | Out-Null
+if (Test-Path $lockPath) {
+    $otherPid = 0
+    try { $otherPid = [int]((Get-Content $lockPath -ErrorAction Stop | Select-Object -First 1)) } catch { $otherPid = 0 }
+    $alive = $false
+    if ($otherPid -gt 0) { $alive = [bool](Get-Process -Id $otherPid -ErrorAction SilentlyContinue) }
+    if ($alive) {
+        Write-Host "[skip] 已有日更流程在跑（PID $otherPid），本次不再并发执行"
+        exit 3
+    }
+    Write-Host "[warn] 发现过期锁（PID $otherPid 已退出），接管"
+}
+Set-Content -Path $lockPath -Value $PID -Encoding ascii
+
 $script:failures = 0
 $script:failedSteps = @()
 function Run-Step([string]$desc, [scriptblock]$cmd) {
@@ -23,6 +39,10 @@ function Run-Step([string]$desc, [scriptblock]$cmd) {
     & $cmd
     $code = $LASTEXITCODE
     $ms = [int]((Get-Date) - $t0).TotalMilliseconds
+    if ($code -eq 3) {
+        Write-Host ("[{0}] [skip] {1}（预期内跳过：非交易时段/通道未就绪/已提交）" -f (Get-Date -Format "HH:mm:ss"), $desc)
+        return
+    }
     if ($code -ne 0) {
         $script:failures++
         $script:failedSteps += $desc
@@ -52,7 +72,8 @@ Run-Step "fetch_us" { python scripts/fetch_market.py --market us }
 Run-Step "fetch_hk" { python scripts/fetch_market.py --market hk }
 
 Write-Host "=== 3b/9 数据门禁（不通过则禁止推进账户与下单）==="
-python scripts/pre_trade_gate.py
+# 只校验本流程会交易的市场（A股/港股）；美股由 21:35 的 us_open_run 单独门禁
+python scripts/pre_trade_gate.py --markets cn,hk
 if ($LASTEXITCODE -ne 0) { Write-Host "[ABORT] 数据门禁未通过：不推进账户、不下单"; exit 1 }
 
 Write-Host "=== 3c/9 A 股交易通道状态（QMT / 同花顺 / 本地）==="
@@ -92,6 +113,7 @@ Run-Step "track_actions" { python scripts/track_actions.py }
 
 Write-Host "=== 9/9 日度报告 + 自检 ==="
 Run-Step "report" { python scripts/lb_daily_report.py }
+Run-Step "dashboard" { python scripts/dashboard.py }
 Run-Step "post_check" { python scripts/post_daily_check.py }
 Write-Host "=== 9a/9 晋级闸门（模拟 → 实钱 条件）==="
 python scripts/promotion_check.py
@@ -100,6 +122,7 @@ Write-Host "=== 9b/9 自动化看门狗（缺产物/任务没跑会告警）==="
 python scripts/automation_watchdog.py
 if ($LASTEXITCODE -eq 1) { Write-Host "[warn] 看门狗报异常，见 reports/automation_health_*.json 与 state/ALERT.json" }
 
+Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
 if ($script:failures -gt 0) {
     Write-Host ("[RESULT] {0} 步失败: {1}" -f $script:failures, ($script:failedSteps -join ", "))
     Write-Host "[LOG] $logPath"
@@ -108,5 +131,6 @@ if ($script:failures -gt 0) {
 }
 Write-Host "[RESULT] 全部步骤成功"
 Write-Host "[LOG] $logPath"
+Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
 try { Stop-Transcript | Out-Null } catch { }
 exit 0
