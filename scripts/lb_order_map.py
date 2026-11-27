@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import os
 import subprocess
@@ -141,7 +142,7 @@ def quotes(symbols: list[str]) -> dict[str, dict]:
 
 def sleeve_targets(market: str, top_k: int, suffix: str) -> dict[str, float]:
     # 目标快照：同一调仓周期内复用冻结目标，非调仓日不重选股
-    _snap_path = Path(__file__).resolve().parents[1] / "state" / "target_snapshot.json"
+    _snap_path = SNAPSHOT_PATH
     try:
         if _snap_path.exists():
             _snap = json.loads(_snap_path.read_text(encoding="utf-8"))
@@ -157,8 +158,21 @@ def sleeve_targets(market: str, top_k: int, suffix: str) -> dict[str, float]:
         print(f"[snapshot] 读取失败，回退计算: {str(_exc)[:80]}")
     panel = Panel.load(index_code=None, market=market)
     cfg = BacktestConfig.for_market(market, top_k=top_k, rebalance_days=20)
-    strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS["momentum"], warmup=130)
-    weights = strat.target_weights(panel.dates[-1])
+
+    # 四相位共识（默认）：2026-11-27 实验显示同样的夏普下，回撤显著更浅
+    # US -32.8%→-24.5%、HK -54.8%→-14.8%；单相位动量在本项目的 -20% 回撤预算下不可用。
+    use_ensemble = os.environ.get("LB_SLEEVE_ENSEMBLE", "1") != "0"
+    if use_ensemble:
+        from quant.strategies.ensemble import PhaseEnsembleStrategy
+
+        strat = PhaseEnsembleStrategy(panel=panel, cfg=cfg, name="momentum", warmup=130,
+                                      exposure_scale=1.0)
+        strat.replay(len(panel.dates) - 1)
+        weights = strat.target_weights(panel.dates[-1])
+        print(f"[sleeve] {market} 使用四相位共识目标（{len(weights)} 只）")
+    else:
+        strat = TopKStrategy(panel=panel, cfg=cfg, factor_weights=PRESETS["momentum"], warmup=130)
+        weights = strat.target_weights(panel.dates[-1])
     return {(c if c.endswith(suffix) else f"{c}{suffix}"): w for c, w in weights.items()}
 
 
