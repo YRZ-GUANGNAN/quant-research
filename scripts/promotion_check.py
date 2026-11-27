@@ -31,6 +31,7 @@ MAX_UNCONFIRMED = 0.05  # 未确认委托占比 ≤ 5%
 MIN_HIT = 0.55         # 风险动作命中率 ≥ 55%
 MIN_SHARPE = 0.5       # 实盘夏普 ≥ 0.5（用净值曲线算，不进回测）
 MIN_FILL_RATE = 0.95   # 成交率 ≥ 95%（挂单没成交等于计划没落地）
+MIN_INVESTED = 0.85    # 资金利用率 ≥ 85%（闲置的钱不产生收益）
 MIN_ACTIONS = 10       # 至少 10 次动作才判定命中率
 MAX_DD = -0.25         # 最大回撤不低于 -25%
 MIN_DATA_DAYS = 10     # 最近 10 个交易日的看门狗记录不能缺
@@ -188,6 +189,15 @@ def fill_rate(reports_dir: Path) -> dict:
             "source": "execution_quality.json" if data else None}
 
 
+def capital_usage(reports_dir: Path) -> dict:
+    """资金利用率：已投 / 总资产。闲置现金是「模型再好也白搭」的那部分。"""
+    data = _read_json(reports_dir / "capital_allocation.json")
+    return {"invested_ratio": data.get("invested_ratio"),
+            "idle_ratio": data.get("idle_ratio"),
+            "problems": data.get("problems") or [],
+            "source": "capital_allocation.json" if data else None}
+
+
 def watchdog_gap(reports_dir: Path, today: date | None = None) -> int:
     """最近 MIN_DATA_DAYS 个自然日里缺了多少天看门狗记录（非交易日不管）。"""
     today = today or date.today()
@@ -227,6 +237,10 @@ def evaluate(today: date | None = None) -> dict:
     add("成交率", fr["fill_rate"] is not None and fr["fill_rate"] >= MIN_FILL_RATE,
         f"{fr['fill_rate'] if fr['fill_rate'] is not None else '无数据'}（需 ≥ {MIN_FILL_RATE}，"
         f"样本 {fr['orders'] or 0} 笔，滑点中位 {fr['slippage_bps_median']} bps）")
+    cap = capital_usage(ROOT / "reports")
+    add("资金利用率", cap["invested_ratio"] is not None and cap["invested_ratio"] >= MIN_INVESTED,
+        f"{cap['invested_ratio'] if cap['invested_ratio'] is not None else '无数据'}"
+        f"（需 ≥ {MIN_INVESTED}；闲置 {cap['idle_ratio'] or 0:.0%}）")
     sh = realized_sharpe(ROOT / "reports")
     add("实盘夏普", sh["sharpe"] is not None and sh["sharpe"] >= MIN_SHARPE,
         f"{sh['sharpe'] if sh['sharpe'] is not None else '无数据'}（需 ≥ {MIN_SHARPE}，样本 {sh['days'] or 0} 天）")
@@ -237,7 +251,7 @@ def evaluate(today: date | None = None) -> dict:
             "checks": checks,
             "gaps": [f"{c['item']}: {c['detail']}" for c in checks if not c["pass"]],
             "raw": {"exec": exec_stats, "hit": hit, "dd": dd, "sharpe": sh,
-                    "fill": fr, "watchdog_gap": gap}}
+                    "fill": fr, "capital": cap, "watchdog_gap": gap}}
 
 
 def main(argv: list[str] | None = None) -> int:

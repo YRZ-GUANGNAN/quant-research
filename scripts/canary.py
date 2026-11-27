@@ -89,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
         checks.append(check(f"计划模拟 {m.upper()}", ["scripts/simulate_plan.py", "--market", m, *extra],
                             blocking=True, ok_codes=(0, 3)))
 
+    # 4b) 资金分布：闲置太多等于模型被摊薄（不阻断交易，但影响上实钱判定）
+    checks.append(check("资金分布", ["scripts/capital_check.py"], blocking=False, ok_codes=(0, 1, 3)))
+
     # 5) 权重漂移：只报告，不阻断（换手上限导致的分次执行是正常的）
     checks.append(check("权重漂移", ["scripts/weight_drift.py", "--markets", ",".join(markets)],
                         blocking=False, ok_codes=(0, 1, 3)))
