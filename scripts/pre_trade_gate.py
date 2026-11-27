@@ -21,15 +21,19 @@ CLOSE_BJ = {"cn": (16, 0), "hk": (16, 30), "us": (5, 0)}  # 北京时间「已�
 
 
 def last_completed_session(market: str, now: datetime | None = None):
-    """按各市场时区估算最近一个已完成交易日（忽略节假日，节假日会误报 FAIL，安全优先）。"""
+    """按各市场时区 + 交易日历估算最近一个已完成交易日。
+
+    之前只跳周末，遇到节假日（例如 2026-11-26 美股感恩节）会把「本来就没数据」
+    误判成「数据落后」，直接把当天流程卡死。
+    """
     now = now or datetime.now(CN_TZ)
     if market == "us":
         # 用纽约时区判断：NY 16:00 前算上一交易日（周一北京白天对应 NY 周日夜里→上周五）
         ny = now.astimezone(ZoneInfo("America/New_York"))
         d = ny.date() if ny.hour >= 16 else ny.date() - timedelta(days=1)
-        while d.weekday() >= 5:
-            d -= timedelta(days=1)
-        return d
+        from quant.data.market_calendar import previous_trading_day
+
+        return previous_trading_day("us", d, include_self=True)
     hour, minute = CLOSE_BJ.get(market, (23, 59))
     d = now.date()
     # 美股：北京早上 5 点前算「上一交易日」
@@ -38,9 +42,9 @@ def last_completed_session(market: str, now: datetime | None = None):
     else:
         if (now.hour, now.minute) < (hour, minute):
             d = d - timedelta(days=1)
-    while d.weekday() >= 5:
-        d -= timedelta(days=1)
-    return d
+    from quant.data.market_calendar import previous_trading_day
+
+    return previous_trading_day(market, d, include_self=True)
 
 MIN_COVERAGE = {"cn": 0.90, "us": 0.85, "hk": 0.85}
 
