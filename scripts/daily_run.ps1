@@ -104,6 +104,7 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
 
 Write-Host "=== 8c/9 执行对账（港股）==="
 Run-Step "reconcile_hk" { python scripts/reconcile_today.py --market hk }
+Run-Step "weight_drift" { python scripts/weight_drift.py --markets us,hk }
 
 Write-Host "=== 8d/9 模型健康检查 ==="
 python scripts/health_check.py

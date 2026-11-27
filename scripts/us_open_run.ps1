@@ -91,6 +91,7 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
 
 Write-Host "=== 6/8 执行对账（期望 vs 实际）==="
 Run-Step "reconcile_us" { python scripts/reconcile_today.py --market us }
+Run-Step "weight_drift" { python scripts/weight_drift.py --markets us }
 
 Write-Host "=== 7/8 模型健康 + 业绩归因 ==="
 python scripts/health_check.py

@@ -53,18 +53,71 @@ def test_orphan_position_is_sold(monkeypatch, tmp_path):
     assert sells and sells[0]["symbol"] == "OLD.US" and sells[0]["qty"] == 50
 
 
-def test_orphan_kept_by_default(monkeypatch, tmp_path):
-    """默认不清理目标外持仓（避免一次性清仓）。"""
+def test_orphan_sold_by_default(monkeypatch, tmp_path):
+    """默认清理目标外持仓：不清理的话组合会变成「历年目标并集」，权重漂移回不来。"""
     monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 0.5}))
     monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
     monkeypatch.setattr(execution, "_positions", lambda: {"OLD.US": 50.0})
     monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
     monkeypatch.setattr(execution, "_cash", lambda ccy: 100_000.0)
     plan = execution.build_plan("us", execution.Policy())
+    sells = [o for o in plan["orders"] if o["side"] == "sell"]
+    assert [o["symbol"] for o in sells] == ["OLD.US"]
+
+
+def test_orphan_kept_when_disabled(monkeypatch, tmp_path):
+    """显式关掉才保留目标外持仓。"""
+    monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 0.5}))
+    monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
+    monkeypatch.setattr(execution, "_positions", lambda: {"OLD.US": 50.0})
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
+    monkeypatch.setattr(execution, "_cash", lambda ccy: 100_000.0)
+    plan = execution.build_plan("us", execution.Policy(cleanup_orphans=False))
     assert [o for o in plan["orders"] if o["side"] == "sell"] == []
+
+
+def test_orphan_turnover_is_capped(monkeypatch, tmp_path):
+    """单轮清仓有换手上限：一次只清 30% 权益，避免一天砸完。"""
+    monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 0.5}))
+    monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
+    monkeypatch.setattr(execution, "_positions",
+                        lambda: {"OLD1.US": 60.0, "OLD2.US": 60.0, "OLD3.US": 60.0})
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
+    monkeypatch.setattr(execution, "_cash", lambda ccy: 0.0)
+    policy = execution.Policy(orphan_max_turnover=0.3)
+    plan = execution.build_plan("us", policy)
+    sells = [o for o in plan["orders"] if o["side"] == "sell"]
+    assert 0 < len(sells) < 3
+
+
+def test_overweight_is_trimmed_before_buying(monkeypatch, tmp_path):
+    """实际权重明显超目标 → 先卖差额，再买别的。"""
+    monkeypatch.setattr(execution, "SNAPSHOT",
+                        _snap(tmp_path, {"BIG.US": 0.2, "NEW.US": 0.3}))
+    monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
+    monkeypatch.setattr(execution, "_positions", lambda: {"BIG.US": 20.0})  # 2000/权益约 9%?
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
+    monkeypatch.setattr(execution, "_cash", lambda ccy: 0.0)
+    plan = execution.build_plan("us", execution.Policy())
+    sides = [o["side"] for o in plan["orders"]]
+    if "sell" in sides:
+        assert sides.index("sell") < (sides.index("buy") if "buy" in sides else len(sides))
 
 
 def test_expired_snapshot_blocks_plan(monkeypatch, tmp_path):
     monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 1.0}, next_reb="2020-01-01"))
     plan = execution.build_plan("us", execution.Policy())
     assert plan["ok"] is False and "过期" in plan["reason"]
+
+
+def test_proxy_symbol_is_never_orphan_sold(monkeypatch, tmp_path):
+    """ASHR.US 归 cn_proxy 袖套管，US 主袖套清仓时必须放过。"""
+    monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 0.5}))
+    monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
+    monkeypatch.setattr(execution, "_positions", lambda: {"ASHR.US": 100.0, "OLD.US": 50.0})
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: set())
+    monkeypatch.setattr(execution, "_cash", lambda ccy: 0.0)
+    plan = execution.build_plan("us", execution.Policy())
+    sold = [o["symbol"] for o in plan["orders"] if o["side"] == "sell"]
+    assert "ASHR.US" not in sold
+    assert "OLD.US" in sold

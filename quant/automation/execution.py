@@ -34,6 +34,8 @@ PROXIES = {
     "cn_proxy_hk": {"symbol": "3188.HK", "sleeve_weight": 0.60, "currency": "HKD", "session": "HK"},
 }
 LEDGER_ROOT = ROOT / "state" / "ledger"
+# 代理袖套持有的标的：归 cn_proxy 管，主袖套清仓时必须放过它们
+PROXY_SYMBOLS = {cfg["symbol"] for cfg in PROXIES.values()}
 
 
 @dataclass
@@ -47,8 +49,12 @@ class Policy:
     cash_buffer: float = 0.02
     allowed_order_type: str = "LO"
     allowed_tif: str = "Day"
-    # 默认不清理目标外持仓：旧目标买入的仓位是合法持仓，清仓会带来巨量成交与成本
-    cleanup_orphans: bool = False
+    # 目标外持仓要清理：不清理的话模型每次换股，旧票会一直留着，
+    # 组合最终变成「历年目标并集」，权重漂移再也回不来（2026-11 实测 HK 需换手 73%）。
+    cleanup_orphans: bool = True
+    orphan_min_weight: float = 0.005      # 小于 0.5% 的零碎仓位不动，省手续费
+    orphan_max_turnover: float = 0.30     # 单轮最多清 30% 权益，避免一天砸完
+    trim_tolerance: float = 0.02          # 超过目标权重 2 个百分点才减仓
 
 
 def _cli_once(args: list[str], timeout: int = 40) -> object:
@@ -177,19 +183,60 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     orders, notional = [], 0.0
     orphan_sells, expected_cash = [], 0.0
     # 目标外持仓：清仓（释放现金，避免旧仓位残留）
+    orphan_candidates = []
     for sym, qty in positions.items():
         if not policy.cleanup_orphans:
             break
-        if sym.endswith(suffix) and sym not in weights and sym not in pending and qty > 0:
-            q = quotes.get(sym) or {}
-            last = float(q.get("last") or 0)
-            if last <= 0:
-                continue
-            px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
-            orphan_sells.append({"symbol": sym, "side": "sell", "qty": int(qty), "price": px,
-                                 "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
-                                 "notional": round(qty * px, 2)})
-            expected_cash += qty * px
+        if sym in PROXY_SYMBOLS:
+            continue   # 代理袖套的仓位不归这个袖套清
+        if not (sym.endswith(suffix) and sym not in weights and sym not in pending and qty > 0):
+            continue
+        q = quotes.get(sym) or {}
+        last = float(q.get("last") or 0)
+        if last <= 0:
+            continue
+        value = qty * last
+        if equity > 0 and value / equity < policy.orphan_min_weight:
+            continue   # 零碎仓位不动，省手续费
+        orphan_candidates.append((value, sym, qty, last))
+    orphan_candidates.sort(reverse=True)
+    orphan_budget = equity * policy.orphan_max_turnover
+    for value, sym, qty, last in orphan_candidates:
+        if expected_cash + value > orphan_budget and orphan_sells:
+            continue   # 本轮换手已到上限，剩下的下次再清
+        px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
+        orphan_sells.append({"symbol": sym, "side": "sell", "qty": int(qty), "price": px,
+                             "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
+                             "notional": round(qty * px, 2)})
+        expected_cash += qty * px
+
+    # 减仓：实际权重明显超目标 → 卖出差额（先卖后买，卖出的钱当天能用来买）
+    trim_sells = []
+    for sym, w in weights.items():
+        if sym in pending:
+            continue
+        held_qty = positions.get(sym, 0.0)
+        if held_qty <= 0:
+            continue
+        q = quotes.get(sym) or {}
+        last = float(q.get("last") or 0)
+        if last <= 0:
+            continue
+        target_value = budget * w
+        current_value = held_qty * last
+        if current_value - target_value <= equity * policy.trim_tolerance:
+            continue
+        lot = 100 if market == "hk" else 1
+        excess_value = current_value - target_value
+        qty = int((excess_value / last) // lot * lot) if market == "hk" else int(excess_value / last)
+        qty = min(qty, int(held_qty))
+        if qty <= 0 or qty * last < policy.min_order_notional_usd:
+            continue
+        px = round(last - _tick_hk(last), 3) if market == "hk" else round(last * 0.995, 2)
+        trim_sells.append({"symbol": sym, "side": "sell", "qty": qty, "price": px,
+                           "order_type": policy.allowed_order_type, "tif": policy.allowed_tif,
+                           "notional": round(qty * px, 2)})
+        expected_cash += qty * px
 
     # 加仓：已有持仓按目标权重补足；无持仓的新标的按目标买入
     for sym, w in weights.items():
@@ -221,7 +268,7 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
                        "notional": round(value, 2)})
         notional += value
 
-    plan_orders = orphan_sells + orders
+    plan_orders = orphan_sells + trim_sells + orders
     if not plan_orders:
         return {"ok": False,
                 "reason": f"{ccy} 可用现金 {cash:,.0f}，无可执行订单（已达标或现金不足）",
