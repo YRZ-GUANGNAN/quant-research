@@ -13,11 +13,12 @@
 
 | 环节 | 状态 |
 |---|---|
-| A 股模型（相位不变组合 · 40 只 · 35 日调仓 · 0.70 仓位） | 每日净值入 `reports/nav_history.csv`（`cn_model` 轨道） |
-| 美股 / 港股袖套 | 自动调仓，Longbridge 模拟盘 |
+| A 股模型（ic_tilt 四相位共识 · 40 只 · 35 日调仓 · 0.70 静态仓位） | 每日净值入 `reports/nav_history.csv`（`cn_model` 轨道） |
+| 美股袖套（四相位动量 · 20 只 · 20 日调仓 · **15% 波动率目标**） | 自动调仓，Longbridge 模拟盘 |
+| 港股袖套（四相位动量 · 15 只 · 20 日调仓） | 自动调仓，Longbridge 模拟盘 |
 | 风险识别 → 替换 | 止损/超配/清仓/换股，**真实发单**并回读确认 |
 | A 股实盘通道（同花顺） | 代码就绪，等待客户端登录模拟账户 |
-| 晋级闸门（模拟 → 实钱） | `scripts/promotion_check.py`，6 项硬指标 |
+| 晋级闸门（模拟 → 实钱） | `scripts/promotion_check.py`，7 项硬指标；操作见 [上实钱手册](docs/runbook-go-live.md) |
 
 每日自动化链路（Windows 计划任务）：
 
@@ -39,7 +40,9 @@
 | `quant/automation/reconcile.py` | 期望 vs 实际成交对账，漏单/拒单显式暴露 |
 | `scripts/preflight.py` | 凭证有效期、磁盘空间、交易通道，开跑前先照一遍 |
 | `scripts/automation_watchdog.py` | 任务没跑/产物缺失独立报警 |
-| `scripts/promotion_check.py` | 上实钱前必须满足：≥20 个交易日、执行零报错、委托确认率 ≥95%、风险动作命中率 ≥55%、回撤 ≥−25%、实盘夏普 ≥0.5 |
+| `scripts/promotion_check.py` | 上实钱前必须满足：≥20 个交易日、执行零报错、委托确认率 ≥95%、风险动作命中率 ≥55%、回撤 ≥−25%、实盘夏普 ≥0.5、成交率 ≥95% |
+| `scripts/execution_quality.py` | 成交率 / 滑点 / 拒单：挂单没成交等于计划没落地 |
+| `docs/runbook-go-live.md` | 上实钱的操作顺序与回滚步骤 |
 
 ---
 
