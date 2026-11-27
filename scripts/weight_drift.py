@@ -30,6 +30,8 @@ SNAPSHOT = ROOT / "state" / "target_snapshot.json"
 LB = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "longbridge.exe"
 
 TOLERANCE = 0.02          # 单标的允许偏离 2 个百分点
+# 代理袖套持有的标的（ASHR/3188）不归主袖套管，算漂移时必须剔除
+PROXY_SYMBOLS = {"ASHR.US", "3188.HK"}
 MAX_TURNOVER = 0.25       # 总偏离（需换手比例）超过 25% 视为需要修正
 
 
@@ -138,7 +140,8 @@ def check_market(market: str) -> dict:
         return {"market": market, "ok": False, "reason": "没有目标快照（先跑 build_target_snapshot.py）"}
     try:
         positions = [p for p in (_cli(["positions"]) or [])
-                     if str(p.get("symbol", "")).endswith(suffix)]
+                     if str(p.get("symbol", "")).endswith(suffix)
+                     and str(p.get("symbol")) not in PROXY_SYMBOLS]
     except (RuntimeError, json.JSONDecodeError) as exc:
         return {"market": market, "ok": False, "reason": f"持仓读取失败: {type(exc).__name__} {str(exc)[:80]}"}
     quotes = quotes_for([str(p["symbol"]) for p in positions])

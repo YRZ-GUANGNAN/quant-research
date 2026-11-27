@@ -175,6 +175,45 @@ def build(day: str) -> str:
         lines.append("- 暂无判定（运行 `python scripts/promotion_check.py`）")
     lines.append("")
 
+    # 9) 漂移与计划模拟
+    lines += ["## 9. 权重漂移 / 下单前模拟", ""]
+    drift = _load("weight_drift.json")
+    if drift:
+        for r in (drift.get("reports") or []):
+            if r.get("turnover") is None:
+                lines.append(f"- **{r.get('market', '?').upper()}**：{r.get('reason', '无数据')}")
+                continue
+            flag = "✅ 在容忍度内" if r.get("ok") else "⚠️ 需要修正"
+            lines.append(f"- **{r['market'].upper()}**：{flag}（需换手 {r['turnover'] * 100:.1f}%，"
+                         f"持仓 {r.get('positions')} / 目标 {r.get('targets')}）")
+            for row in (r.get("offenders") or [])[:3]:
+                lines.append(f"  - {row['symbol']} 目标 {row['target'] * 100:.1f}% → 实际 "
+                             f"{row['actual'] * 100:.1f}%（{row['drift'] * 100:+.1f}pp）")
+    else:
+        lines.append("- 暂无漂移报告（运行 `python scripts/weight_drift.py`）")
+    for m in ("us", "hk"):
+        sim = _load(f"plan_simulation_{m}.json")
+        if not sim:
+            continue
+        state = "✅ 通过" if not sim.get("problems") else "❌ 有问题"
+        lines.append(f"- **{m.upper()} 计划模拟**：{state} — {sim.get('orders')} 笔，"
+                     f"卖 {sim.get('sell_notional', 0):,.0f} / 买 {sim.get('buy_notional', 0):,.0f}，"
+                     f"现金 {sim.get('cash_before', 0):,.0f} → {sim.get('cash_after', 0):,.0f}，"
+                     f"漂移 {sim.get('turnover_before', 0) * 100:.0f}% → {sim.get('turnover_after', 0) * 100:.0f}%")
+        for p2 in (sim.get("problems") or [])[:2]:
+            lines.append(f"  - ❌ {p2}")
+    lines.append("")
+
+    # 10) 开跑前自检
+    pre = _load("preflight.json")
+    lines += ["## 10. 开跑前自检", ""]
+    if pre:
+        for c in (pre.get("checks") or []):
+            lines.append(f"- {c.get('status')} {c.get('item')}：{c.get('detail', '')}")
+    else:
+        lines.append("- 暂无自检记录（运行 `python scripts/preflight.py`）")
+    lines.append("")
+
     lines += ["---", "",
               "> 说明：本面板由 `scripts/dashboard.py` 自动生成；数据来源为券商模拟盘/真实 A 股账户快照，",
               "> 不含任何投资建议，历史表现不代表未来收益。"]
