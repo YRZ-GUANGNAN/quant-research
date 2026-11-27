@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 MIN_DAYS = 20          # 至少 20 个交易日
 MAX_UNCONFIRMED = 0.05  # 未确认委托占比 ≤ 5%
 MIN_HIT = 0.55         # 风险动作命中率 ≥ 55%
+MIN_SHARPE = 0.5       # 实盘夏普 ≥ 0.5（用净值曲线算，不进回测）
 MIN_ACTIONS = 10       # 至少 10 次动作才判定命中率
 MAX_DD = -0.25         # 最大回撤不低于 -25%
 MIN_DATA_DAYS = 10     # 最近 10 个交易日的看门狗记录不能缺
@@ -160,6 +161,14 @@ def nav_drawdown(reports_dir: Path) -> dict:
             "per_market": usable}
 
 
+def realized_sharpe(reports_dir: Path) -> dict:
+    """从净值绩效报告取合计夏普（没有就先跑 equity_curve.py）。"""
+    data = _read_json(reports_dir / "equity_curve.json")
+    total = data.get("total") or {}
+    return {"sharpe": total.get("sharpe"), "days": total.get("days"),
+            "return": total.get("return"), "source": "equity_curve.json" if data else None}
+
+
 def watchdog_gap(reports_dir: Path, today: date | None = None) -> int:
     """最近 MIN_DATA_DAYS 个自然日里缺了多少天看门狗记录（非交易日不管）。"""
     today = today or date.today()
@@ -195,13 +204,16 @@ def evaluate(today: date | None = None) -> dict:
         f"good {hit['good']} / 判定 {hit['actions']}（需 ≥ {MIN_ACTIONS} 次且 ≥ {MIN_HIT * 100:.0f}%）")
     add("最大回撤", dd["max_drawdown"] is not None and dd["max_drawdown"] >= MAX_DD,
         f"{dd['max_drawdown'] if dd['max_drawdown'] is not None else '无数据'}（需 ≥ {MAX_DD * 100:.0f}%）")
+    sh = realized_sharpe(ROOT / "reports")
+    add("实盘夏普", sh["sharpe"] is not None and sh["sharpe"] >= MIN_SHARPE,
+        f"{sh['sharpe'] if sh['sharpe'] is not None else '无数据'}（需 ≥ {MIN_SHARPE}，样本 {sh['days'] or 0} 天）")
     add("数据/任务无缺口", gap == 0, f"最近 10 个工作日缺 {gap} 天记录")
 
     ready = all(c["pass"] for c in checks)
     return {"date": today.isoformat(), "stage": "sim", "ready_for_real": ready,
             "checks": checks,
             "gaps": [f"{c['item']}: {c['detail']}" for c in checks if not c["pass"]],
-            "raw": {"exec": exec_stats, "hit": hit, "dd": dd, "watchdog_gap": gap}}
+            "raw": {"exec": exec_stats, "hit": hit, "dd": dd, "sharpe": sh, "watchdog_gap": gap}}
 
 
 def main(argv: list[str] | None = None) -> int:

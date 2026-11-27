@@ -68,6 +68,8 @@ def test_evaluate_can_pass_with_all_conditions(tmp_path: Path, monkeypatch):
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "action_tracking_2026-11-20.json").write_text(json.dumps(
         {"actions": [{"verdict": "good"}] * 8 + [{"verdict": "bad"}] * 2}), encoding="utf-8")
+    (reports / "equity_curve.json").write_text(json.dumps(
+        {"total": {"sharpe": 1.2, "days": 20, "return": 0.08}}), encoding="utf-8")
     (reports / "nav_history.csv").write_text(
         "date,market,equity,cash,positions\n"
         "2026-11-18,us,100000,0,1\n"
@@ -128,7 +130,16 @@ def test_trade_days_unions_all_sources(tmp_path: Path, monkeypatch):
     (reports / "attribution_2026-11-20.json").write_text("{}", encoding="utf-8")
     (state / "risk_orders_2026-11-21.jsonl").write_text('{"status":"submitted"}\n', encoding="utf-8")
     (state / "action_log.jsonl").write_text('{"date":"2026-11-22"}\n', encoding="utf-8")
+    (reports / "equity_curve.json").write_text(json.dumps(
+        {"total": {"sharpe": 1.2, "days": 20, "return": 0.08}}), encoding="utf-8")
     (reports / "nav_history.csv").write_text(
         "date,market,equity,cash,positions\n2026-11-23,us,1,0,0\n", encoding="utf-8")
     days = pc.trade_days(reports, state)
     assert {"2026-11-20", "2026-11-21", "2026-11-22", "2026-11-23"} <= days
+
+
+def test_sharpe_gate_blocks_without_evidence(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(pc, "ROOT", tmp_path)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    sh = pc.realized_sharpe(tmp_path / "reports")
+    assert sh["sharpe"] is None
