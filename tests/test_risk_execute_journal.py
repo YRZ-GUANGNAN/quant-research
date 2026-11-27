@@ -74,3 +74,44 @@ def test_execute_blocked_outside_session(tmp_path: Path, monkeypatch):
     out = rx.execute([], market="us", dry_run=False, positions={}, quotes={}, limits=rx.Limits())
     assert out.get("blocked") is True
     assert "非交易时段" in str(out.get("reason"))
+
+
+def test_risk_orders_skip_symbols_already_planned(tmp_path, monkeypatch):
+    """再平衡当天已经安排过的标的，风控不能重复下单（否则同一标的被卖两次）。"""
+    from quant.automation import reconcile as rc
+
+    monkeypatch.setattr(rx, "ROOT", tmp_path)
+    monkeypatch.setattr(rc, "EXPECTED_DIR", tmp_path)
+    monkeypatch.setenv("RISK_ALLOW_EXECUTION", "1")
+    _trading(monkeypatch)
+    rc.record_expected("us", [{"symbol": "TSLA.US", "side": "sell", "qty": 196}])
+
+    calls = []
+
+    def fake_submit(order):
+        calls.append(order.symbol)
+        return {"symbol": order.symbol, "side": order.side, "status": "submitted", "order_id": "x"}
+
+    monkeypatch.setattr(rx, "_lb_submit", fake_submit)
+
+    import quant.automation.risk_guard as rg
+
+    actions = [rg.Action(action="exit", symbol="TSLA.US", reason="止损")]
+    assert actions  # 确保真的走了「有动作但被去重」的路径
+    positions = {"TSLA.US": {"qty": 196, "last": 378.0}}
+    quotes = {"TSLA.US": {"last": 378.0}}
+    out = rx.execute(actions, market="us", dry_run=False, positions=positions, quotes=quotes,
+                     limits=rx.Limits())
+    assert "TSLA.US" not in calls
+    assert out["ok"] is True
+
+
+def test_limit_price_has_buffer():
+    import quant.automation.risk_guard as rg
+
+    pos = {"NVDA.US": {"qty": 100, "last": 200.0}}
+    quotes = {"NVDA.US": {"last": 200.0}}
+    orders = rx.to_orders([rg.Action(action="exit", symbol="NVDA.US", reason="止损")],
+                          pos, quotes, rx.Limits())
+    sell = [o for o in orders if o.side == "sell"][0]
+    assert sell.price < 200.0   # 卖单必须低于最新价，否则挂不上

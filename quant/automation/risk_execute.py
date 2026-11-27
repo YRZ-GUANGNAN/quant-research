@@ -49,6 +49,12 @@ def to_orders(actions, positions: dict[str, dict], quotes: dict[str, dict],
         pos = positions.get(a.symbol)
         q = quotes.get(a.symbol) or {}
         price = float(q.get("last") or (pos or {}).get("last") or 0)
+        if price > 0:
+            # 卖单略低于最新价、买单略高，保证能成交（否则挂在盘口等着不成交）
+            buffered_sell = round(price * 0.995, 3)
+            buffered_buy = round(price * 1.005, 3)
+        else:
+            buffered_sell = buffered_buy = 0.0
         if price <= 0 or not pos:
             continue
         qty_have = float(pos.get("qty") or 0)
@@ -56,23 +62,23 @@ def to_orders(actions, positions: dict[str, dict], quotes: dict[str, dict],
             continue
         if a.action == "exit":
             qty = qty_have * limits.max_sell_fraction
-            orders.append(OrderPlan(a.symbol, "sell", qty, price, a.reason, a.replace_with))
+            orders.append(OrderPlan(a.symbol, "sell", qty, buffered_sell, a.reason, a.replace_with))
             if a.replace_with:
                 rq = quotes.get(a.replace_with) or {}
                 rprice = float(rq.get("last") or 0)
                 if rprice > 0:
                     orders.append(OrderPlan(a.replace_with, "buy", round(qty * price / rprice, 0),
-                                            rprice, f"替换 {a.symbol}", ""))
+                                            round(rprice * 1.005, 3), f"替换 {a.symbol}", ""))
         elif a.action == "trim":
             target = float(a.target_qty or 0)
             qty = max(0.0, qty_have - target)
             if qty > 0:
-                orders.append(OrderPlan(a.symbol, "sell", qty, price, a.reason))
+                orders.append(OrderPlan(a.symbol, "sell", qty, buffered_sell, a.reason))
         elif a.action == "de_risk":
             factor = float(a.target_qty or 0.7)
             qty = qty_have * (1 - factor)
             if qty > 0:
-                orders.append(OrderPlan(a.symbol, "sell", qty, price, a.reason))
+                orders.append(OrderPlan(a.symbol, "sell", qty, buffered_sell, a.reason))
     return orders
 
 
@@ -135,6 +141,18 @@ def append_journal(record: dict, day=None) -> None:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+
+def _planned_today(market: str) -> set[str]:
+    """读当天「期望订单」里出现过的标的（再平衡/模拟写入的）。"""
+    try:
+        from quant.automation.reconcile import load_expected
+
+        return {str(row.get("symbol")) for row in load_expected(market) if row.get("symbol")}
+    except Exception as exc:  # noqa: BLE001 - 读不到就不去重，但不能因此崩
+        print(f"[risk] 读取当日期望订单失败（跳过去重）: {type(exc).__name__}")
+        return set()
+
+
 def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dict,
             limits: Limits | None = None) -> dict:
     orders = to_orders(actions, positions, quotes, limits)
@@ -159,6 +177,13 @@ def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dic
 
     submit = _cn_submit if market == "cn" else _lb_submit
     sent = load_sent()
+    # 主再平衡当天已经安排过这个标的（可能是清仓/减仓），风控再卖一次就会重复下单
+    already = _planned_today(market)
+    if already:
+        before = len(orders)
+        orders = [o for o in orders if o.symbol not in already]
+        if len(orders) != before:
+            print(f"[risk] 跳过 {before - len(orders)} 笔：这些标的今天已由再平衡安排过")
     results = []
     for o in orders:
         if (o.symbol, o.side) in sent:
