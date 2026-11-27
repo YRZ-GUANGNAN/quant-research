@@ -27,7 +27,7 @@ function Run-Step([string]$desc, [scriptblock]$cmd) {
     $code = $LASTEXITCODE
     $ms = [int]((Get-Date) - $t0).TotalMilliseconds
     if ($code -eq 3) {
-        Write-Host ("[{0}] [skip] {1}（非交易时段或已提交，预期内）" -f (Get-Date -Format "HH:mm:ss"), $desc)
+        Write-Host ("[{0}] [skip] {1}（预期内跳过：非交易时段/通道未就绪/已提交）" -f (Get-Date -Format "HH:mm:ss"), $desc)
         return
     }
     if ($code -ne 0) {

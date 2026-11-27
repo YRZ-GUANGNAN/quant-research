@@ -710,13 +710,19 @@ def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits |
         return {"ok": False, "reason": "缺少 CN_ALLOW_EXECUTION=1，拒绝真实下单", "orders": []}
     info = detect()
     if not info["ths"]["available"]:
-        return {"ok": False, "reason": "同花顺通道不可用：" + "；".join(info["ths"]["blockers"]), "orders": []}
+        return {"ok": False, "blocked": True,
+                "reason": "同花顺通道不可用：" + "；".join(info["ths"]["blockers"]), "orders": []}
     ok_acct, why = account_guard()
     if not ok_acct:
         return {"ok": False, "blocked": True, "reason": why, "orders": []}
 
     _focus_trade_window()
-    acct = _ths_account()
+    try:
+        acct = _ths_account()
+    except Exception as exc:  # noqa: BLE001 - 未登录/需验证码：预期内跳过，不抛栈
+        return {"ok": False, "blocked": True,
+                "reason": f"交易通道连接失败（{type(exc).__name__}: {str(exc)[:80]}），本次不下单",
+                "orders": []}
     try:
         balance = _read_with_retry(_read_balance_via_gui, attempts=2)
     except Exception:  # noqa: BLE001 - 回退 easytrader（旧版本可用）

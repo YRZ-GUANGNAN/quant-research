@@ -11,15 +11,22 @@ from quant.broker import cn_broker
 
 
 def main() -> int:
-    acct = cn_broker._ths_account()
     try:
-        raw = cn_broker._read_with_retry(cn_broker._read_positions_via_clipboard, attempts=3, delay=1.5)
-    except Exception as exc:  # noqa: BLE001 - 休市/表格导出失败时降级为「仅资金」
+        acct = cn_broker._ths_account()
+    except Exception as exc:  # noqa: BLE001 - 未登录/需验证码时不该让整个任务失败
+        acct = None
+        print(f"[cn] 交易通道连接不可用（{type(exc).__name__}: {str(exc)[:80]}），改用纯界面读取")
+    try:
+        raw = cn_broker._read_with_retry(cn_broker._read_positions_via_clipboard, attempts=2, delay=1.0)
+    except Exception as exc:  # noqa: BLE001 - 休市/风控/表格导出失败时降级为「仅资金」
         raw = []
         print(f"[cn] 持仓明细读取失败（{type(exc).__name__}），降级为仅资金视图")
     try:
         bal = cn_broker._read_with_retry(cn_broker._read_balance_via_gui, attempts=2)
     except Exception:  # noqa: BLE001
+        if acct is None:
+            print("[cn] 资金读取失败：账户未登录，跳过本次风险体检")
+            return 3
         bal = cn_broker._read_with_retry(lambda: acct.balance)
     row = bal if isinstance(bal, dict) else (bal[0] if bal else {})
     cash = float(row.get("可用金额") or 0)
@@ -36,6 +43,9 @@ def main() -> int:
     equity = total or (cash + sum(x.market_value for x in positions))
     mv = sum(x.market_value for x in positions)
     drawdown = (mv / cost_sum - 1.0) if cost_sum > 0 else 0.0   # 只算持仓浮盈亏，不含现金
+    if equity <= 0 and not positions:
+        print("[cn] 账户总资产为 0（未登录或空账户），跳过风险体检")
+        return 3
     actions = evaluate(positions, equity=equity, drawdown=drawdown, policy=RiskPolicy()) if positions else []
     print(f"[cn] 总资产 {equity:,.0f} 元 | 可用 {cash:,.0f} | 持仓 {len(positions)} 只 | 浮盈亏 {drawdown:+.2%}")
     print(summarize(actions))
