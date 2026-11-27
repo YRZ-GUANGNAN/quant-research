@@ -32,6 +32,7 @@ MIN_HIT = 0.55         # 风险动作命中率 ≥ 55%
 MIN_ACTIONS = 10       # 至少 10 次动作才判定命中率
 MAX_DD = -0.25         # 最大回撤不低于 -25%
 MIN_DATA_DAYS = 10     # 最近 10 个交易日的看门狗记录不能缺
+ERROR_WINDOW_DAYS = 20  # 执行报错只看最近 20 个交易日（窗口与样本天数一致）
 
 
 def _read_json(path: Path) -> dict:
@@ -83,9 +84,12 @@ def trade_days(reports_dir: Path, state_dir: Path) -> set[str]:
 def execution_stats(orders_dir: Path, reports_dir: Path | None = None) -> dict:
     """台账统计：交易日数（全市场并集）、执行错误、确认率。"""
     files = sorted(orders_dir.glob("cn_orders_*.jsonl"))
-    days = trade_days(reports_dir or (ROOT / "reports"), orders_dir)
+    all_days = trade_days(reports_dir or (ROOT / "reports"), orders_dir)
+    days = all_days
+    cutoff = sorted(all_days)[-ERROR_WINDOW_DAYS] if len(all_days) > ERROR_WINDOW_DAYS else ""
+    files_recent = [f for f in files if not cutoff or f.stem.split("_")[-1] >= cutoff]
     total = errors = confirmed = 0
-    for f in files:
+    for f in files_recent:
         for rec in _read_jsonl(f):
             status = str(rec.get("status", ""))
             if status in ("sent",):
@@ -99,7 +103,7 @@ def execution_stats(orders_dir: Path, reports_dir: Path | None = None) -> dict:
             elif status == "unconfirmed":
                 total += 1
     unconfirmed_ratio = 0.0 if total == 0 else round((total - confirmed) / total, 4)
-    return {"trade_days": len(days), "exec_errors": errors,
+    return {"trade_days": len(days), "exec_errors": errors, "error_window_days": min(len(days), ERROR_WINDOW_DAYS),
             "confirm_total": total, "confirmed": confirmed,
             "unconfirmed_ratio": unconfirmed_ratio}
 

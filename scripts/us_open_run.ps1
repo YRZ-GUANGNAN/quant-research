@@ -22,6 +22,19 @@ try { Start-Transcript -Path $logPath -Append | Out-Null } catch { Write-Host "[
 Get-ChildItem $logDir -Filter "us_open_*.log" | Sort-Object LastWriteTime -Descending |
     Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# ---------- 运行锁：与日更共用一把锁，避免 21:35 与 22:30 两路同时下单 ----------
+$lockPath = Join-Path (Get-Location) "state\daily_run.lock"
+New-Item -ItemType Directory -Force -Path (Split-Path $lockPath) | Out-Null
+if (Test-Path $lockPath) {
+    $otherPid = 0
+    try { $otherPid = [int]((Get-Content $lockPath -ErrorAction Stop | Select-Object -First 1)) } catch { $otherPid = 0 }
+    if ($otherPid -gt 0 -and [bool](Get-Process -Id $otherPid -ErrorAction SilentlyContinue)) {
+        Write-Host "[skip] 已有流程在跑（PID $otherPid），本次不并发执行"
+        exit 3
+    }
+}
+Set-Content -Path $lockPath -Value $PID -Encoding ascii
+
 $script:failures = 0
 $script:failedSteps = @()
 function Run-Step([string]$desc, [scriptblock]$cmd) {
@@ -85,6 +98,7 @@ Run-Step "report_us" { python scripts/lb_daily_report.py }
 Run-Step "track_actions_us" { python scripts/track_actions.py }
 Run-Step "dashboard_us" { python scripts/dashboard.py }
 
+Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
 if ($script:failures -gt 0) {
     Write-Host ("[RESULT] {0} 步失败: {1}" -f $script:failures, ($script:failedSteps -join ", "))
     Write-Host "[LOG] $logPath"
@@ -93,5 +107,6 @@ if ($script:failures -gt 0) {
 }
 Write-Host "[RESULT] 美股开盘流程完成"
 Write-Host "[LOG] $logPath"
+Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
 try { Stop-Transcript | Out-Null } catch { }
 exit 0
