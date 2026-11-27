@@ -42,7 +42,8 @@ def test_execute_blocks_when_channel_unavailable(monkeypatch):
 
 def test_limits_defaults_are_conservative():
     lim = cn_broker.Limits()
-    assert lim.max_orders_per_run <= 20
+    # 20 只目标 + 卖出段，单轮需要 ~26 笔；上限放到 30 仍属保守（单笔/单日金额另有限制）
+    assert lim.max_orders_per_run <= 30
     assert lim.max_order_notional_cny <= 100_000
     assert lim.min_order_notional_cny >= 1_000
     assert lim.lot_size == 100

@@ -26,7 +26,7 @@ from quant.strategies.ensemble import PhaseEnsembleStrategy  # noqa: E402
 OUT = ROOT / "state" / "cn_target_live.json"
 
 
-def build_target(top: int = 6, exposure: float = 0.70, warmup: int = 130,
+def build_target(top: int = 20, exposure: float = 0.70, warmup: int = 130,
                  index: str = "000300", rebalance: int = 35) -> dict:
     """返回目标权重与元信息（纯计算，不写盘、不读账户）。"""
     from quant.config import BacktestConfig
@@ -55,7 +55,9 @@ def build_target(top: int = 6, exposure: float = 0.70, warmup: int = 130,
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 A 股实盘目标权重")
-    ap.add_argument("--top", type=int, default=6, help="持有标的数（小账户建议 5-8）")
+    # 2026-11-27 实验：top6 回撤 −35.6%（远超 −20% 预算）、夏普 0.72；
+    # top20 夏普 0.84、回撤 −20.2%，收益几乎不降。小账户也应按 20 只分散。
+    ap.add_argument("--top", type=int, default=20, help="持有标的数（20 只为实验最优）")
     ap.add_argument("--exposure", type=float, default=0.70, help="股票仓位系数")
     ap.add_argument("--preview", action="store_true", help="对照真实账户算单（不下单）")
     args = ap.parse_args(argv)

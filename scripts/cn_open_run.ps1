@@ -72,7 +72,7 @@ Write-Host "=== 4/7 A 股本地引擎推进（信号侧）==="
 Run-Step "run_paper" { python scripts/run_paper.py }
 
 Write-Host "=== 5/7 生成实盘目标权重（模型共识前 N 只，小账户版）==="
-Run-Step "build_target" { python scripts/build_cn_target_live.py --top 6 --exposure 0.70 }
+Run-Step "build_target" { python scripts/build_cn_target_live.py --top 20 --exposure 0.70 }
 
 Write-Host "=== 6/7 对照真实账户算单（dry-run，不下单）==="
 Run-Step "cn_preview" { python -m quant.broker.cn_broker --target state/cn_target_live.json }

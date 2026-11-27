@@ -23,7 +23,7 @@ THS_TRADE_EXE = THS_DIR / "xiadan.exe"   # 网上股票交易系统（下单程�
 
 @dataclass
 class Limits:
-    max_orders_per_run: int = 20
+    max_orders_per_run: int = 30   # 20 只目标 + 卖出段，需要更多笔数配额
     max_order_notional_cny: float = 100_000.0
     max_notional_per_day_cny: float = 500_000.0
     min_order_notional_cny: float = 2_000.0   # 卖单最小金额（手续费不划算就不动）
