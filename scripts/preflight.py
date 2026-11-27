@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -121,7 +122,6 @@ def clean_temp(min_age_days: int = 3) -> dict:
 
     C 盘满了会导致 pip/剪贴板/模型缓存全部失败，而且报错信息完全看不出是磁盘问题。
     """
-    import tempfile
     import time
 
     root = Path(tempfile.gettempdir())
