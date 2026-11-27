@@ -2,6 +2,12 @@
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watchdog_task.ps1
 $ErrorActionPreference = "Continue"
 Set-Location "D:\3314\quant-research"
+# 临时目录指到工作区：C 盘曾只剩 0.03GB，python 临时文件会把任务打挂
+$tmpDir = Join-Path (Get-Location) "tmp"
+New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+$env:TEMP = $tmpDir
+$env:TMP = $tmpDir
+
 $env:PYTHONIOENCODING = "utf-8"
 
 $logDir = Join-Path (Get-Location) "logs"

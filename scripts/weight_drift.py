@@ -153,6 +153,8 @@ def check_market(market: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="持仓漂移检查")
     ap.add_argument("--markets", default="us,hk")
+    ap.add_argument("--strict", action="store_true",
+                    help="有标的超阈值时返回 1（流水线默认只报告，不算失败）")
     args = ap.parse_args(argv)
 
     reports = [check_market(m.strip()) for m in args.markets.split(",") if m.strip()]
@@ -178,7 +180,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"偏离 {row['drift'] * 100:+5.1f}pp  ({row['kind']})")
         bad = bad or not r["ok"]
     print(f"  -> {out}")
-    return 1 if bad else 0
+    if bad and args.strict:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
