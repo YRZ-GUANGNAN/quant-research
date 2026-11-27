@@ -24,7 +24,18 @@ def record_expected(market: str, orders: list[dict], *, on: str | None = None) -
     EXPECTED_DIR.mkdir(parents=True, exist_ok=True)
     day = on or date.today().isoformat()
     path = EXPECTED_DIR / f"{day}_{market}.json"
-    path.write_text(json.dumps(orders, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 合并而不是覆盖：一个交易日可能先跑再平衡、再跑风控动作，
+    # 覆盖会让对账只记得最后一批，前面真实发出的单变成「计划外」。
+    merged: dict[tuple[str, str], dict] = {}
+    if path.exists():
+        try:
+            for row in json.loads(path.read_text(encoding="utf-8")):
+                merged[(str(row.get("symbol")), str(row.get("side")))] = row
+        except (json.JSONDecodeError, TypeError):
+            merged = {}
+    for row in orders:
+        merged[(str(row.get("symbol")), str(row.get("side")))] = row
+    path.write_text(json.dumps(list(merged.values()), ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 

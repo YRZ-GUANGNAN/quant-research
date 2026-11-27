@@ -300,6 +300,16 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
         plan["dry_run"] = True
         return plan
 
+    # 落盘期望订单：对账靠它判断「该发的有没有发出去」
+    try:
+        from quant.automation.reconcile import record_expected
+
+        _mkt = {"cn_proxy": "us", "cn_proxy_hk": "hk"}.get(market, market)
+        record_expected(_mkt, [{"symbol": o["symbol"], "side": o["side"], "qty": o["qty"]}
+                               for o in plan["orders"]])
+    except Exception as exc:  # noqa: BLE001 - 记录失败不阻断下单，但要留痕
+        print(f"[exec] 期望订单落盘失败: {type(exc).__name__} {str(exc)[:80]}")
+
     session = datetime.now(timezone.utc).date().isoformat()
     key = consumption_key(market=market, snapshot_id=str(plan["snapshot_rebalance_date"]),
                           eligible_execution_session=session)
