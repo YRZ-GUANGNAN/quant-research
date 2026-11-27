@@ -115,12 +115,21 @@ def tracking_hit(reports_dir: Path) -> dict:
     if not files:
         return {"actions": 0, "good": 0, "bad": 0, "hit": None, "source": None}
     data = _read_json(files[-1])
-    rows = data.get("actions") or data.get("records") or []
-    good = sum(1 for r in rows if r.get("verdict") == "good")
-    bad = sum(1 for r in rows if r.get("verdict") == "bad")
-    judged = good + bad
-    return {"actions": judged, "good": good, "bad": bad,
-            "hit": round(good / judged, 4) if judged else None, "source": files[-1].name}
+    # track_actions 的输出把汇总放在顶层（total/good/bad/hit_rate），明细在 rows；
+    # 之前只读 actions/records，导致「有证据却判定为 0 样本」。
+    rows = data.get("rows") or data.get("actions") or data.get("records") or []
+    good = data.get("good")
+    bad = data.get("bad")
+    if good is None or bad is None:
+        good = sum(1 for r in rows if r.get("verdict") == "good")
+        bad = sum(1 for r in rows if r.get("verdict") == "bad")
+    judged = int(good) + int(bad)
+    hit = data.get("hit_rate")
+    if hit is None:
+        hit = round(good / judged, 4) if judged else None
+    return {"actions": judged, "good": int(good), "bad": int(bad),
+            "hit": round(float(hit), 4) if hit is not None else None,
+            "total_rows": len(rows), "source": files[-1].name}
 
 
 def nav_drawdown(reports_dir: Path) -> dict:

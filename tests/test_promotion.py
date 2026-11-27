@@ -143,3 +143,14 @@ def test_sharpe_gate_blocks_without_evidence(tmp_path: Path, monkeypatch):
     (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
     sh = pc.realized_sharpe(tmp_path / "reports")
     assert sh["sharpe"] is None
+
+
+def test_tracking_hit_reads_toplevel_summary(tmp_path: Path):
+    """track_actions 的汇总在顶层 total/good/bad/hit_rate，明细在 rows。"""
+    (tmp_path / "action_tracking_2026-11-27.json").write_text(json.dumps(
+        {"total": 48, "good": 34, "bad": 7, "hit_rate": 0.7083,
+         "rows": [{"verdict": "good"}, {"verdict": "bad"}]}), encoding="utf-8")
+    hit = pc.tracking_hit(tmp_path)
+    assert hit["good"] == 34 and hit["bad"] == 7
+    assert hit["actions"] == 41
+    assert hit["hit"] == 0.7083

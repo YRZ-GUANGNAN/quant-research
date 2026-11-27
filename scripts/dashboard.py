@@ -137,6 +137,44 @@ def build(day: str) -> str:
         lines.append("- 暂无追踪数据（运行 `python scripts/track_actions.py`）")
     lines.append("")
 
+    # 7) 净值绩效
+    lines += ["## 7. 净值绩效", ""]
+    curve = _load("equity_curve.json")
+    if curve:
+        def _pct(v):
+            return "—" if v is None else f"{v * 100:+.2f}%"
+
+        def _num(v):
+            return "—" if v is None else f"{v:.2f}"
+
+        lines.append("| 市场 | 天数 | 累计 | 最大回撤 | 夏普 | 胜率 |")
+        lines.append("|---|---|---|---|---|---|")
+        for m, st in sorted((curve.get("markets") or {}).items()):
+            lines.append(f"| {m.upper()} | {st.get('days')} | {_pct(st.get('return'))} | "
+                         f"{_pct(st.get('max_drawdown'))} | {_num(st.get('sharpe'))} | "
+                         f"{_pct(st.get('win_rate'))} |")
+        t = curve.get("total") or {}
+        lines.append(f"| **合计** | {t.get('days')} | {_pct(t.get('return'))} | "
+                     f"{_pct(t.get('max_drawdown'))} | {_num(t.get('sharpe'))} | {_pct(t.get('win_rate'))} |")
+        for w in (curve.get("warnings") or [])[:3]:
+            lines.append(f"- ⚠️ {w}")
+    else:
+        lines.append("- 暂无净值绩效（运行 `python scripts/equity_curve.py`）")
+    lines.append("")
+
+    # 8) 晋级闸门（模拟 → 实钱）
+    lines += ["## 8. 晋级闸门（模拟 → 实钱）", ""]
+    gate = _load("promotion_status.json")
+    if gate:
+        verdict = "✅ 已具备上实钱条件" if gate.get("ready_for_real") else "⏳ 继续模拟"
+        lines.append(f"- 判定：**{verdict}**（{gate.get('date', '')}）")
+        for c in (gate.get("checks") or []):
+            mark = "✅" if c.get("pass") else "❌"
+            lines.append(f"  - {mark} {c.get('item')}：{c.get('detail')}")
+    else:
+        lines.append("- 暂无判定（运行 `python scripts/promotion_check.py`）")
+    lines.append("")
+
     lines += ["---", "",
               "> 说明：本面板由 `scripts/dashboard.py` 自动生成；数据来源为券商模拟盘/真实 A 股账户快照，",
               "> 不含任何投资建议，历史表现不代表未来收益。"]
