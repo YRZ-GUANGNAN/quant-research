@@ -103,6 +103,38 @@ def _cn_submit(order: OrderPlan) -> dict:
     return {"symbol": order.symbol, "side": order.side, "status": "submitted"}
 
 
+
+def _journal_path(day=None) -> Path:
+    day = day or __import__("datetime").date.today()
+    return ROOT / "state" / f"risk_orders_{day}.jsonl"
+
+
+def load_sent(day=None) -> set[tuple[str, str]]:
+    """当日已确认提交的 (标的, 方向)。"""
+    path = _journal_path(day)
+    sent: set[tuple[str, str]] = set()
+    if not path.exists():
+        return sent
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # noqa: silent-ok - 跳过损坏行，不影响幂等判断
+        if rec.get("status") == "submitted":
+            sent.add((str(rec.get("symbol")), str(rec.get("side"))))
+    return sent
+
+
+def append_journal(record: dict, day=None) -> None:
+    path = _journal_path(day)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dict,
             limits: Limits | None = None) -> dict:
     orders = to_orders(actions, positions, quotes, limits)
@@ -114,11 +146,17 @@ def execute(actions, *, market: str, dry_run: bool, positions: dict, quotes: dic
         return {"ok": False, "reason": "A 股需 CN_ALLOW_EXECUTION=1", "orders": []}
 
     submit = _cn_submit if market == "cn" else _lb_submit
+    sent = load_sent()
     results = []
     for o in orders:
+        if (o.symbol, o.side) in sent:
+            results.append({"symbol": o.symbol, "side": o.side, "status": "already-sent-today"})
+            continue
         try:
-            results.append(submit(o))
-        except Exception as exc:  # noqa: BLE001
-            results.append({"symbol": o.symbol, "status": f"error: {str(exc)[:80]}"})
-    ok = all(r.get("status") == "submitted" for r in results)
+            r = submit(o)
+        except Exception as exc:  # noqa: BLE001 - 单笔失败不影响其余，逐笔记账
+            r = {"symbol": o.symbol, "side": o.side, "status": f"error: {str(exc)[:80]}"}
+        append_journal({**r, "qty": o.qty, "reason": o.reason}, None)
+        results.append(r)
+    ok = all(str(r.get("status")) in ("submitted", "already-sent-today") for r in results)
     return {"ok": ok, "results": results}

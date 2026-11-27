@@ -10,6 +10,9 @@ Set-Location "D:\3314\quant-research"
 $env:PYTHONIOENCODING = "utf-8"
 $env:LB_ACCOUNT_KIND = "paper"
 $env:LB_ALLOW_EXECUTION = "1"
+# 风险动作真实执行（仅模拟盘）：止损/替换会真的发单，幂等台账防重复
+if ($env:LB_ACCOUNT_KIND -eq "paper") { $env:RISK_ALLOW_EXECUTION = "1" }
+if ($NoExecute) { $env:RISK_ALLOW_EXECUTION = "0" }
 if ($NoExecute) { $env:LB_ALLOW_EXECUTION = "0" }    # 受控执行通道（policy + ledger 保护）
 
 $logDir = Join-Path (Get-Location) "logs"
