@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -76,7 +77,16 @@ def plan_rebalance(
         return min(qty, float(cap))
 
     def px(sym: str) -> float:
-        return float(prices.get(sym) or 0.0)
+        """取价格；NaN/Inf/负数一律当 0（当成没报价，跳过而不是崩掉）。
+
+        行情源偶尔会返回 "NaN" 字符串，float() 之后是 nan，直接 int() 会抛异常——
+        在交易系统里，"崩掉"比"少做一笔"危险得多。
+        """
+        try:
+            value = float(prices.get(sym) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return value if math.isfinite(value) and value > 0 else 0.0
 
     sells: list[dict] = []
     buys: list[dict] = []

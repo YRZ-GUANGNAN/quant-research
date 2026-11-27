@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -257,7 +258,14 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     skip = set(pending)
     holdings = {sym: qty for sym, qty in positions.items()
                 if sym.endswith(suffix) and sym not in PROXY_SYMBOLS and sym not in skip}
-    prices = {sym: float((quotes.get(sym) or {}).get("last") or 0) for sym in universe}
+    def _safe_price(raw) -> float:
+        try:
+            v = float(raw or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return v if math.isfinite(v) and v > 0 else 0.0
+
+    prices = {sym: _safe_price((quotes.get(sym) or {}).get("last")) for sym in universe}
     limits = RebLimits(
         lot_size=100 if market == "hk" else 1,
         min_notional=policy.min_order_notional_usd,
