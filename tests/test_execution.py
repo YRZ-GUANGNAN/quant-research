@@ -69,3 +69,25 @@ def test_no_cash_means_no_orders(monkeypatch, tmp_path):
     plan = execution.build_plan("hk", execution.Policy())
     assert plan["ok"] is False
     assert plan["orders"] == []
+
+
+def test_broker_symbol_maps_dashed_us_tickers():
+    """模型用 BRK-B.US，券商接口要 BRK.B.US；不转换这类标的永远买不进去。"""
+    assert execution.broker_symbol("BRK-B.US") == "BRK.B.US"
+    assert execution.broker_symbol("AAPL.US") == "AAPL.US"
+    assert execution.broker_symbol("0700.HK") == "0700.HK"
+
+
+def test_quotes_falls_back_to_broker_symbol(monkeypatch):
+    calls = []
+
+    def fake_cli(args, timeout=40):
+        calls.append(args[:2])
+        if args[1] == "BRK-B.US":
+            return []
+        return [{"symbol": "BRK.B.US", "last": "582.2"}]
+
+    monkeypatch.setattr(execution, "_cli", fake_cli)
+    quotes = execution._quotes(["BRK-B.US"])
+    assert quotes["BRK-B.US"]["last"] == "582.2"
+    assert any("BRK.B.US" in c for c in calls)

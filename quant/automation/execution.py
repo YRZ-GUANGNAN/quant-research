@@ -105,12 +105,38 @@ def market_sessions() -> dict[str, str]:
     return out
 
 
+
+def broker_symbol(sym: str) -> str:
+    """模型里的美股类别股写法是 BRK-B.US，券商接口要 BRK.B.US。
+
+    不转换的话这类标的永远拿不到报价、也永远买不进去（每天静默跳过）。
+    """
+    sym = str(sym or "").strip()
+    if sym.endswith(".US") and "-" in sym[:-3]:
+        return sym[:-3].replace("-", ".") + ".US"
+    return sym
+
+
 def _quotes(symbols: list[str]) -> dict[str, dict]:
-    out = {}
+    out: dict[str, dict] = {}
     for i in range(0, len(symbols), 20):
         for q in _cli(["quote", *symbols[i:i + 20]]) or []:
             if isinstance(q, dict) and q.get("symbol"):
                 out[q["symbol"]] = q
+
+    # 类别股（BRK-B.US ↔ BRK.B.US）：原名查不到就换券商写法补查，再映射回原名
+    missing = [s2 for s2 in symbols if s2 not in out]
+    alt = {broker_symbol(s2): s2 for s2 in missing if broker_symbol(s2) != s2}
+    if alt:
+        for i in range(0, len(alt), 20):
+            batch = list(alt)[i:i + 20]
+            try:
+                for q in _cli(["quote", *batch]) or []:
+                    sym = str(q.get("symbol") or "")
+                    if sym in alt and q.get("last"):
+                        out[alt[sym]] = {**q, "symbol": alt[sym]}
+            except (RuntimeError, json.JSONDecodeError) as exc:
+                print(f"[exec] 备选写法报价失败: {type(exc).__name__}")
     return out
 
 
@@ -327,7 +353,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
     for item in plan["orders"]:
         try:
             ledger.mark_submitting(key=key, plan_id=item["symbol"], intent_id=item["symbol"])
-            prev = _cli(["order", item["side"], item["symbol"], str(item["qty"]),
+            prev = _cli(["order", item["side"], broker_symbol(item["symbol"]), str(item["qty"]),
                          "--price", f"{item['price']:.3f}", "--order-type", "LO"])
             code = prev.get("confirmation_code")
             if not code:
@@ -335,7 +361,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
                                    status="UNKNOWN")
                 results.append({**item, "status": "no-confirmation-code"})
                 continue
-            resp = _cli(["order", item["side"], item["symbol"], str(item["qty"]),
+            resp = _cli(["order", item["side"], broker_symbol(item["symbol"]), str(item["qty"]),
                          "--price", f"{item['price']:.3f}", "--order-type", "LO", "--execute", code])
             oid = resp.get("order_id")
             ledger.mark_result(key=key, plan_id=item["symbol"], intent_id=item["symbol"],
