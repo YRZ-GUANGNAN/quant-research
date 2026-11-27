@@ -23,7 +23,7 @@ def _orders(tmp: Path, name: str, rows: list[dict]) -> None:
 def test_execution_stats_counts_days_and_unconfirmed(tmp_path: Path):
     _orders(tmp_path, "2026-11-01", [{"status": "confirmed"}, {"status": "unconfirmed"}])
     _orders(tmp_path, "2026-11-02", [{"status": "confirmed"}, {"status": "error: 余额不足"}])
-    stats = pc.execution_stats(tmp_path)
+    stats = pc.execution_stats(tmp_path, tmp_path)
     assert stats["trade_days"] == 2
     assert stats["confirmed"] == 2
     assert stats["exec_errors"] == 1
@@ -34,7 +34,7 @@ def test_execution_stats_ignores_corrupt_lines(tmp_path: Path):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "cn_orders_2026-11-03.jsonl").write_text(
         '{"status": "confirmed"}\n不是 JSON\n', encoding="utf-8")
-    stats = pc.execution_stats(tmp_path)
+    stats = pc.execution_stats(tmp_path, tmp_path)
     assert stats["confirmed"] == 1 and stats["trade_days"] == 1
 
 
@@ -68,8 +68,10 @@ def test_evaluate_can_pass_with_all_conditions(tmp_path: Path, monkeypatch):
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "action_tracking_2026-11-20.json").write_text(json.dumps(
         {"actions": [{"verdict": "good"}] * 8 + [{"verdict": "bad"}] * 2}), encoding="utf-8")
-    (reports / "dashboard_2026-11-20.json").write_text(json.dumps({"max_drawdown": -0.12}),
-                                                       encoding="utf-8")
+    (reports / "nav_history.csv").write_text(
+        "date,market,equity,cash,positions\n"
+        "2026-11-18,us,100000,0,1\n"
+        "2026-11-20,us,88000,0,1\n", encoding="utf-8")
     for i in range(10):
         d = date(2026, 11, 20).fromordinal(date(2026, 11, 20).toordinal() - i)
         if d.weekday() < 5:
@@ -103,3 +105,30 @@ def test_plan_orders_unaffected_by_equity_cap():
     plan, _ = cb.plan_orders({"600000": 0.2}, cash=100_000, equity=200_000,
                              holdings={}, prices={"600000": 10.0})
     assert plan and plan[0]["side"] == "buy"
+
+
+def test_nav_drawdown_is_per_market(tmp_path: Path):
+    """各市场记录天数不同，不能按日相加（会造出假回撤）。"""
+    (tmp_path / "nav_history.csv").write_text(
+        "date,market,equity,cash,positions\n"
+        "2026-11-19,us,100000,0,1\n"
+        "2026-11-20,us,90000,0,1\n"
+        "2026-11-20,hk,500000,0,1\n"
+        "2026-11-21,hk,505000,0,1\n", encoding="utf-8")
+    dd = pc.nav_drawdown(tmp_path)
+    assert dd["max_drawdown"] == -0.1
+    assert dd["per_market"]["us"] == -0.1
+    assert dd["per_market"]["hk"] == 0.0
+
+
+def test_trade_days_unions_all_sources(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(pc, "ROOT", tmp_path)
+    reports = tmp_path / "reports"; reports.mkdir(parents=True)
+    state = tmp_path / "state"; state.mkdir(parents=True)
+    (reports / "attribution_2026-11-20.json").write_text("{}", encoding="utf-8")
+    (state / "risk_orders_2026-11-21.jsonl").write_text('{"status":"submitted"}\n', encoding="utf-8")
+    (state / "action_log.jsonl").write_text('{"date":"2026-11-22"}\n', encoding="utf-8")
+    (reports / "nav_history.csv").write_text(
+        "date,market,equity,cash,positions\n2026-11-23,us,1,0,0\n", encoding="utf-8")
+    days = pc.trade_days(reports, state)
+    assert {"2026-11-20", "2026-11-21", "2026-11-22", "2026-11-23"} <= days

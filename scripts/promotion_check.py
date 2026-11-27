@@ -56,10 +56,34 @@ def _read_jsonl(path: Path) -> list[dict]:
     return out
 
 
-def execution_stats(orders_dir: Path) -> dict:
-    """台账统计：交易天数、执行错误、确认率。"""
+def trade_days(reports_dir: Path, state_dir: Path) -> set[str]:
+    """真正跑过交易的日子：归因报告 / 动作日志 / 各市场下单台账 / 净值曲线，取并集。"""
+    days: set[str] = set()
+    for f in reports_dir.glob("attribution_*.json"):
+        days.add(f.stem.replace("attribution_", ""))
+    for pattern in ("cn_orders_*.jsonl", "risk_orders_*.jsonl"):
+        for f in state_dir.glob(pattern):
+            days.add(f.stem.split("_")[-1])
+    log = state_dir / "action_log.jsonl"
+    if log.exists():
+        for rec in _read_jsonl(log):
+            if rec.get("date"):
+                days.add(str(rec["date"]))
+    nav = reports_dir / "nav_history.csv"
+    if nav.exists():
+        import csv
+
+        with nav.open("r", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("date"):
+                    days.add(str(row["date"]))
+    return {d for d in days if len(d) == 10 and d[4] == "-"}
+
+
+def execution_stats(orders_dir: Path, reports_dir: Path | None = None) -> dict:
+    """台账统计：交易日数（全市场并集）、执行错误、确认率。"""
     files = sorted(orders_dir.glob("cn_orders_*.jsonl"))
-    days = {f.stem.replace("cn_orders_", "") for f in files}
+    days = trade_days(reports_dir or (ROOT / "reports"), orders_dir)
     total = errors = confirmed = 0
     for f in files:
         for rec in _read_jsonl(f):
@@ -95,13 +119,41 @@ def tracking_hit(reports_dir: Path) -> dict:
 
 
 def nav_drawdown(reports_dir: Path) -> dict:
-    files = sorted(reports_dir.glob("dashboard_*.json"))
-    for f in reversed(files):
-        data = _read_json(f)
-        dd = data.get("max_drawdown") or data.get("mdd")
-        if isinstance(dd, (int, float)):
-            return {"max_drawdown": float(dd), "source": f.name}
-    return {"max_drawdown": None, "source": None}
+    """最大回撤：分市场算。
+
+    不能把各市场当日净值相加——各市场记录天数不一致（有的日子只有港股），
+    相加会凭空造出几十个点的假回撤。分市场算完取最差的那个，口径更保守。
+    """
+    nav = reports_dir / "nav_history.csv"
+    if not nav.exists():
+        return {"max_drawdown": None, "source": None}
+    import csv
+    from collections import defaultdict
+
+    series: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    with nav.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                series[str(row["market"])].append((str(row["date"]), float(row["equity"])))
+            except (KeyError, TypeError, ValueError):
+                continue  # noqa: silent-ok - 坏行跳过，不影响整体回撤口径
+
+    per_market: dict[str, float] = {}
+    for market, rows in series.items():
+        rows.sort()
+        peak, mdd = 0.0, 0.0
+        for _, eq in rows:
+            peak = max(peak, eq)
+            if peak > 0:
+                mdd = min(mdd, eq / peak - 1.0)
+        per_market[market] = round(mdd, 4)
+
+    usable = {m: v for m, v in per_market.items() if len(series[m]) >= 2}
+    if not usable:
+        return {"max_drawdown": None, "source": nav.name, "per_market": per_market}
+    worst_market = min(usable, key=lambda m: usable[m])
+    return {"max_drawdown": usable[worst_market], "source": f"{nav.name}:{worst_market}",
+            "per_market": usable}
 
 
 def watchdog_gap(reports_dir: Path, today: date | None = None) -> int:
