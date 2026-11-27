@@ -42,6 +42,39 @@ def _nav_rows(markets=("us", "hk", "cn")) -> dict[str, list[dict]]:
 def build(day: str) -> str:
     lines = [f"# 量化系统绩效面板 · {day}", ""]
 
+    # 0) 本日一句话总结：能不能交易 / 能不能上实钱
+    lines += ["## 0. 一句话状态", ""]
+    canary = _load("canary.json") or {}
+    gate = _load("promotion_status.json") or {}
+    health = _load("health_latest.json") or {}
+    if canary:
+        verdict = canary.get("verdict", "?")
+        bad = canary.get("blocking_failures") or []
+        lines.append(f"- 开跑前金丝雀：**{verdict}**" + (f"（阻断 {len(bad)} 项）" if bad else "（全部检查通过）"))
+        for b in bad[:2]:
+            lines.append(f"  - ❌ {b}")
+    else:
+        lines.append("- 开跑前金丝雀：未运行（`python scripts/canary.py`）")
+    if gate:
+        lines.append(f"- 晋级闸门：**{'可以上实钱' if gate.get('ready_for_real') else '继续模拟'}**"
+                     f"（{gate.get('date', '')}）")
+        for gap in (gate.get("gaps") or [])[:3]:
+            lines.append(f"  - 待办：{gap}")
+    alert_path = ROOT / "state" / "ALERT.json"
+    if alert_path.exists():
+        try:
+            alert = json.loads(alert_path.read_text(encoding="utf-8"))
+            when = str(alert.get("at", ""))[:16]
+            probs = alert.get("problems") or []
+            lines.append(f"- 告警：⚠️ {when} 有 {len(probs)} 项（{probs[0][:60] if probs else '见 state/ALERT.json'}）")
+        except (OSError, json.JSONDecodeError):
+            lines.append("- 告警：⚠️ 存在 state/ALERT.json（内容无法解析）")
+    else:
+        lines.append("- 告警：无")
+    if health:
+        lines.append(f"- 模型健康：**{health.get('worst', 'unknown')}**")
+    lines.append("")
+
     # 1) 账户概览（来自归因报告）
     attr = _load(f"attribution_{day}.json") or {}
     if attr:
