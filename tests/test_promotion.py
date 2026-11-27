@@ -68,6 +68,9 @@ def test_evaluate_can_pass_with_all_conditions(tmp_path: Path, monkeypatch):
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "action_tracking_2026-11-20.json").write_text(json.dumps(
         {"actions": [{"verdict": "good"}] * 8 + [{"verdict": "bad"}] * 2}), encoding="utf-8")
+    (reports / "execution_quality.json").write_text(json.dumps(
+        {"fill_rate": 0.98, "orders": 40, "rejects": 0, "slippage_bps_median": -5.0}),
+        encoding="utf-8")
     (reports / "equity_curve.json").write_text(json.dumps(
         {"total": {"sharpe": 1.2, "days": 20, "return": 0.08}}), encoding="utf-8")
     (reports / "nav_history.csv").write_text(
@@ -130,6 +133,9 @@ def test_trade_days_unions_all_sources(tmp_path: Path, monkeypatch):
     (reports / "attribution_2026-11-20.json").write_text("{}", encoding="utf-8")
     (state / "risk_orders_2026-11-21.jsonl").write_text('{"status":"submitted"}\n', encoding="utf-8")
     (state / "action_log.jsonl").write_text('{"date":"2026-11-22"}\n', encoding="utf-8")
+    (reports / "execution_quality.json").write_text(json.dumps(
+        {"fill_rate": 0.98, "orders": 40, "rejects": 0, "slippage_bps_median": -5.0}),
+        encoding="utf-8")
     (reports / "equity_curve.json").write_text(json.dumps(
         {"total": {"sharpe": 1.2, "days": 20, "return": 0.08}}), encoding="utf-8")
     (reports / "nav_history.csv").write_text(
@@ -154,3 +160,14 @@ def test_tracking_hit_reads_toplevel_summary(tmp_path: Path):
     assert hit["good"] == 34 and hit["bad"] == 7
     assert hit["actions"] == 41
     assert hit["hit"] == 0.7083
+
+
+def test_fill_rate_gate_blocks_bad_execution(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(pc, "ROOT", tmp_path)
+    reports = tmp_path / "reports"; reports.mkdir(parents=True)
+    (reports / "execution_quality.json").write_text(json.dumps(
+        {"fill_rate": 0.5, "orders": 10, "rejects": 5, "slippage_bps_median": 40}),
+        encoding="utf-8")
+    fr = pc.fill_rate(reports)
+    assert fr["fill_rate"] == 0.5
+    assert fr["fill_rate"] < pc.MIN_FILL_RATE

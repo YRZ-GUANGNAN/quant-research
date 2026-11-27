@@ -55,6 +55,7 @@ class Policy:
     orphan_min_weight: float = 0.005      # 小于 0.5% 的零碎仓位不动，省手续费
     orphan_max_turnover: float = 0.30     # 单轮最多清 30% 权益，避免一天砸完
     trim_tolerance: float = 0.02          # 超过目标权重 2 个百分点才减仓
+    price_buffer: float = 0.008           # 限价缓冲：买高 0.8%、卖低 0.8%，保证能成交
 
 
 def _cli_once(args: list[str], timeout: int = 40) -> object:
@@ -244,9 +245,11 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
             continue
         if market == "hk":
             tick = _tick_hk(ref)
-            order["price"] = round(ref - tick if order["side"] == "sell" else ref + tick, 3)
+            pad = max(tick, round(ref * policy.price_buffer, 3))
+            order["price"] = round(ref - pad if order["side"] == "sell" else ref + pad, 3)
         else:
-            order["price"] = round(ref * (0.995 if order["side"] == "sell" else 1.005), 2)
+            order["price"] = round(ref * (1 - policy.price_buffer if order["side"] == "sell"
+                                          else 1 + policy.price_buffer), 2)
         order["order_type"] = policy.allowed_order_type
         order["tif"] = policy.allowed_tif
     plan_orders = [o for o in plan_orders if o.get("price")]

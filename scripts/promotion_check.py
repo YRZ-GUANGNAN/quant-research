@@ -30,6 +30,7 @@ MIN_DAYS = 20          # 至少 20 个交易日
 MAX_UNCONFIRMED = 0.05  # 未确认委托占比 ≤ 5%
 MIN_HIT = 0.55         # 风险动作命中率 ≥ 55%
 MIN_SHARPE = 0.5       # 实盘夏普 ≥ 0.5（用净值曲线算，不进回测）
+MIN_FILL_RATE = 0.95   # 成交率 ≥ 95%（挂单没成交等于计划没落地）
 MIN_ACTIONS = 10       # 至少 10 次动作才判定命中率
 MAX_DD = -0.25         # 最大回撤不低于 -25%
 MIN_DATA_DAYS = 10     # 最近 10 个交易日的看门狗记录不能缺
@@ -178,6 +179,15 @@ def realized_sharpe(reports_dir: Path) -> dict:
             "return": total.get("return"), "source": "equity_curve.json" if data else None}
 
 
+def fill_rate(reports_dir: Path) -> dict:
+    """从成交质量报告取成交率与滑点。"""
+    data = _read_json(reports_dir / "execution_quality.json")
+    return {"fill_rate": data.get("fill_rate"), "orders": data.get("orders"),
+            "rejects": data.get("rejects"),
+            "slippage_bps_median": data.get("slippage_bps_median"),
+            "source": "execution_quality.json" if data else None}
+
+
 def watchdog_gap(reports_dir: Path, today: date | None = None) -> int:
     """最近 MIN_DATA_DAYS 个自然日里缺了多少天看门狗记录（非交易日不管）。"""
     today = today or date.today()
@@ -213,6 +223,10 @@ def evaluate(today: date | None = None) -> dict:
         f"good {hit['good']} / 判定 {hit['actions']}（需 ≥ {MIN_ACTIONS} 次且 ≥ {MIN_HIT * 100:.0f}%）")
     add("最大回撤", dd["max_drawdown"] is not None and dd["max_drawdown"] >= MAX_DD,
         f"{dd['max_drawdown'] if dd['max_drawdown'] is not None else '无数据'}（需 ≥ {MAX_DD * 100:.0f}%）")
+    fr = fill_rate(ROOT / "reports")
+    add("成交率", fr["fill_rate"] is not None and fr["fill_rate"] >= MIN_FILL_RATE,
+        f"{fr['fill_rate'] if fr['fill_rate'] is not None else '无数据'}（需 ≥ {MIN_FILL_RATE}，"
+        f"样本 {fr['orders'] or 0} 笔，滑点中位 {fr['slippage_bps_median']} bps）")
     sh = realized_sharpe(ROOT / "reports")
     add("实盘夏普", sh["sharpe"] is not None and sh["sharpe"] >= MIN_SHARPE,
         f"{sh['sharpe'] if sh['sharpe'] is not None else '无数据'}（需 ≥ {MIN_SHARPE}，样本 {sh['days'] or 0} 天）")
@@ -222,7 +236,8 @@ def evaluate(today: date | None = None) -> dict:
     return {"date": today.isoformat(), "stage": "sim", "ready_for_real": ready,
             "checks": checks,
             "gaps": [f"{c['item']}: {c['detail']}" for c in checks if not c["pass"]],
-            "raw": {"exec": exec_stats, "hit": hit, "dd": dd, "sharpe": sh, "watchdog_gap": gap}}
+            "raw": {"exec": exec_stats, "hit": hit, "dd": dd, "sharpe": sh,
+                    "fill": fr, "watchdog_gap": gap}}
 
 
 def main(argv: list[str] | None = None) -> int:
