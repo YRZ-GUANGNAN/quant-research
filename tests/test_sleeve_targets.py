@@ -55,20 +55,21 @@ def _patch_common(monkeypatch, calls: list[str]):
     monkeypatch.setattr(lom, "TopKStrategy", _TopK)
 
 
-def test_ensemble_is_default(monkeypatch):
+def test_single_phase_is_default(monkeypatch):
+    """默认单相位动量：同仓位复测显示四相位共识没有优势、换手还高 20%。"""
     calls: list[str] = []
     _patch_common(monkeypatch, calls)
     monkeypatch.delenv("LB_SLEEVE_ENSEMBLE", raising=False)
     monkeypatch.setattr(lom, "Path", Path)  # 快照不存在 → 直接算
     w = lom.sleeve_targets("us", 20, ".US")
-    assert calls == ["ensemble"]
-    assert w == {"AAA.US": 0.5, "BBB.US": 0.5}
-
-
-def test_can_fall_back_to_single_phase(monkeypatch):
-    calls: list[str] = []
-    _patch_common(monkeypatch, calls)
-    monkeypatch.setenv("LB_SLEEVE_ENSEMBLE", "0")
-    w = lom.sleeve_targets("us", 20, ".US")
     assert calls == ["topk"]
     assert w == {"AAA.US": 0.6}
+
+
+def test_ensemble_can_be_enabled(monkeypatch):
+    calls: list[str] = []
+    _patch_common(monkeypatch, calls)
+    monkeypatch.setenv("LB_SLEEVE_ENSEMBLE", "1")
+    w = lom.sleeve_targets("us", 20, ".US")
+    assert calls == ["ensemble"]
+    assert w == {"AAA.US": 0.5, "BBB.US": 0.5}

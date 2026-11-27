@@ -159,9 +159,12 @@ def sleeve_targets(market: str, top_k: int, suffix: str) -> dict[str, float]:
     panel = Panel.load(index_code=None, market=market)
     cfg = BacktestConfig.for_market(market, top_k=top_k, rebalance_days=20)
 
-    # 四相位共识（默认）：2026-11-27 实验显示同样的夏普下，回撤显著更浅
-    # US -32.8%→-24.5%、HK -54.8%→-14.8%；单相位动量在本项目的 -20% 回撤预算下不可用。
-    use_ensemble = os.environ.get("LB_SLEEVE_ENSEMBLE", "1") != "0"
+    # 默认单相位动量。曾一度默认改成四相位共识，但那是**同仓位对比错误**导致的结论：
+    # 当时拿「25% 仓位的共识」比「100% 仓位的单相位」，回撤差异其实来自仓位不是模型。
+    # 同仓位复测（2026-11-27）：HK 单相位 2.83%/0.55/-14.3% vs 共识 2.81%/0.53/-14.8%；
+    # US 13.91%/0.99/-25.3% vs 14.44%/1.02/-24.5%，换手共识还高 20%。
+    # 结论：共识在同仓位下没有优势，维持单相位（LB_SLEEVE_ENSEMBLE=1 可切回共识）。
+    use_ensemble = os.environ.get("LB_SLEEVE_ENSEMBLE", "0") == "1"
     if use_ensemble:
         from quant.strategies.ensemble import PhaseEnsembleStrategy
 
