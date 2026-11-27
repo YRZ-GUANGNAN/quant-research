@@ -23,7 +23,7 @@ python scripts/promotion_check.py     # 全绿才算过
 | 1 | 环境自检 | `python scripts/preflight.py` | 凭证 PASS、磁盘无 FAIL、通道 PASS |
 | 2 | 数据门禁 | `python scripts/pre_trade_gate.py --markets cn,hk`（美股用 `--markets us`） | 每个市场 PASS |
 | 3 | 权重漂移 | `python scripts/weight_drift.py --markets us,hk` | 需换手 ≤ 20% |
-| 4 | 下单前模拟 | `python scripts/simulate_plan.py --market us --cash-share 0.35 --vol-target 0.15` | `problems` 为空、现金为正 |
+| 4 | 下单前模拟 | `python scripts/simulate_plan.py --market us --cash-share 0.35 --vol-target 0.12` | `problems` 为空、现金为正 |
 
 四项任一不过，**当天不上**。这不是保守，是因为这四项里任何一项失败，实盘都会真金白银出错。
 
