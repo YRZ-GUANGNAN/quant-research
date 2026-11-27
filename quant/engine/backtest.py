@@ -159,7 +159,21 @@ class Backtester:
         nav_values: list[float] = []
         weight_rows: list[dict] = []
 
+        # 区间截断：cfg.start/end 之前只让策略状态前进（预热），不交易、不记账。
+        # 以前引擎完全不读 cfg.start，导致所有标注「2023 起」的实验实际跑的是全样本。
+        start_ts = pd.Timestamp(cfg.start) if getattr(cfg, "start", None) else None
+        end_ts = pd.Timestamp(cfg.end) if getattr(cfg, "end", None) else None
+        active_from = 0
+        if start_ts is not None:
+            active_from = next((i for i, d in enumerate(self.dates) if d >= start_ts),
+                               len(self.dates))
+
         for i, d in enumerate(self.dates):
+            if i < active_from:
+                weight_func(i)          # 只推进状态（相位/因子窗口），不产生交易
+                continue
+            if end_ts is not None and d > end_ts:
+                break
             broker.settle()
             if pending is not None:
                 self._execute(broker, i, pending, self._exposure(nav_values))

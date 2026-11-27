@@ -29,7 +29,7 @@ REPORTS = ROOT / "reports"
 LB = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "longbridge.exe"
 
 # 目标权重（决策 0014，2026-11-27 按 2023+ 实测重定）：
-# 2023 年以来只有美股有正超额（夏普 1.19），港股接近 0（0.21），A 股为负（-0.08）。
+# 2023 年以来（含真实预热）：美股夏普 1.19、A 股 0.34、港股 0.24 —— 只有美股明显更强。
 DESIGN_WEIGHTS = {"us": 0.60, "hk": 0.20, "cn": 0.20}
 IDLE_WARN = 0.10        # 闲置现金超过 10% 就报警
 DEVIATION_WARN = 0.15   # 实际权重与设计权重偏离超过 15pp 报警
