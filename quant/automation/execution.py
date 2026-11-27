@@ -252,8 +252,11 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
     from quant.automation.rebalance import Limits as RebLimits
     from quant.automation.rebalance import plan_rebalance
 
+    # 已有在途委托的标的这一轮完全不碰：不让它再买、也不让它被当"目标外"卖掉。
+    # （重构成通用再平衡器时漏掉了这个过滤，第二轮补单会对同一标的重复下单。）
+    skip = set(pending)
     holdings = {sym: qty for sym, qty in positions.items()
-                if sym.endswith(suffix) and sym not in PROXY_SYMBOLS}
+                if sym.endswith(suffix) and sym not in PROXY_SYMBOLS and sym not in skip}
     prices = {sym: float((quotes.get(sym) or {}).get("last") or 0) for sym in universe}
     limits = RebLimits(
         lot_size=100 if market == "hk" else 1,
@@ -265,7 +268,8 @@ def build_plan(market: str, policy: Policy, cash_share: float = 1.0) -> dict:
         orphan_min_weight=policy.orphan_min_weight,
         orphan_max_turnover=policy.orphan_max_turnover,
     )
-    targets = {sym: w for sym, w in weights.items() if sym not in PROXY_SYMBOLS}
+    targets = {sym: w for sym, w in weights.items()
+               if sym not in PROXY_SYMBOLS and sym not in skip}
     if not policy.cleanup_orphans:
         holdings = {sym: q for sym, q in holdings.items() if sym in targets}
     # 注意：cash 只能是真实现金。之前误把袖套市值加进来当现金用，

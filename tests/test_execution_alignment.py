@@ -121,3 +121,17 @@ def test_proxy_symbol_is_never_orphan_sold(monkeypatch, tmp_path):
     sold = [o["symbol"] for o in plan["orders"] if o["side"] == "sell"]
     assert "ASHR.US" not in sold
     assert "OLD.US" in sold
+
+
+def test_pending_symbols_are_skipped_entirely(monkeypatch, tmp_path):
+    """已有在途委托的标的：既不再买，也不能被当成目标外卖掉（否则重复下单）。"""
+    monkeypatch.setattr(execution, "SNAPSHOT", _snap(tmp_path, {"A.US": 0.5}))
+    monkeypatch.setattr(execution, "_quotes", lambda s: {x: {"last": 100.0} for x in s})
+    monkeypatch.setattr(execution, "_positions",
+                        lambda: {"A.US": 10.0, "TSLA.US": 50.0, "OLD.US": 50.0})
+    monkeypatch.setattr(execution, "_pending_symbols", lambda: {"TSLA.US"})
+    monkeypatch.setattr(execution, "_cash", lambda ccy: 100_000.0)
+    plan = execution.build_plan("us", execution.Policy())
+    symbols = {o["symbol"] for o in plan["orders"]}
+    assert "TSLA.US" not in symbols      # 有在途委托：不重复动它
+    assert "A.US" in symbols             # 其它标的照常执行
