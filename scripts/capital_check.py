@@ -28,8 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
 LB = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "longbridge.exe"
 
-# 设计权重（docs/analysis/model-and-allocation.md）
-DESIGN_WEIGHTS = {"cn": 0.60, "us": 0.30, "hk": 0.10}
+# 目标权重（决策 0014，2026-11-27 按 2023+ 实测重定）：
+# 2023 年以来只有美股有正超额（夏普 1.19），港股接近 0（0.21），A 股为负（-0.08）。
+DESIGN_WEIGHTS = {"us": 0.60, "hk": 0.20, "cn": 0.20}
 IDLE_WARN = 0.10        # 闲置现金超过 10% 就报警
 DEVIATION_WARN = 0.15   # 实际权重与设计权重偏离超过 15pp 报警
 # 粗略汇率（仅用于量级判断；不参与下单）

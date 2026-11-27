@@ -51,7 +51,9 @@ def run_sleeve(market: str, start: str) -> pd.Series:
     cfg = BacktestConfig.for_market(market, top_k=cfg_spec["topk"], rebalance_days=cfg_spec["rebal"])
     if start:
         cfg = replace(cfg, start=start)
-    panel = Panel.load(index_code=None, market=market)
+    # 注意：Backtester 不读 cfg.start，区间必须在这里截断（前 130 天用于预热）
+    panel = Panel.load(index_code=None, market=market, start=start) if start else \
+        Panel.load(index_code=None, market=market)
     if cfg_spec["kind"] == "ensemble":
         strat = PhaseEnsembleStrategy(panel=panel, cfg=cfg, name=cfg_spec["preset"], warmup=130,
                                       exposure_scale=cfg_spec["exposure"])

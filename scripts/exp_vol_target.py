@@ -41,7 +41,8 @@ def run_one(market: str, start: str, exposure: float, vol_target: float | None,
     name, topk, rebal = PRESET[market]
     base = BacktestConfig.for_market(market, top_k=topk, rebalance_days=rebal)
     cfg = replace(base, start=start) if start else base
-    panel = Panel.load(index_code=None, market=market)
+    panel = Panel.load(index_code=None, market=market, start=start) if start else \
+        Panel.load(index_code=None, market=market)
     strat = PhaseEnsembleStrategy(panel=panel, cfg=cfg, name=name, warmup=130, exposure_scale=exposure)
     bt = Backtester(panel, cfg, vol_target=vol_target, min_exposure=min_exposure)
     result = bt.run(strat.weight_func(), name=f"{market}-{name}")

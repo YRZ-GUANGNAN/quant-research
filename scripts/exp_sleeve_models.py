@@ -44,7 +44,8 @@ def run_variant(market: str, kind: str, start: str, slippage: float) -> dict:
     cfg = BacktestConfig.for_market(market, top_k=topk, rebalance_days=rebal)
     if start:
         cfg = replace(cfg, start=start)
-    panel = Panel.load(index_code=None, market=market)
+    panel = Panel.load(index_code=None, market=market, start=start) if start else \
+        Panel.load(index_code=None, market=market)
     bt = Backtester(panel, cfg)
 
     if kind == "momentum_topk":
