@@ -348,6 +348,51 @@ def _build_proxy_plan(market: str, policy: Policy, cash_share: float = 1.0) -> d
             "snapshot_rebalance_date": "proxy", "snapshot_next": "2099-12-31"}
 
 
+
+WORKING_STATUSES = {"New", "NotReported", "Submitted", "PartFilled", "PartialFilled",
+                    "WaitingSubmit", "Filling"}
+
+
+def _wait_sells(symbols: set[str], *, timeout: float = 90.0, interval: float = 6.0) -> dict:
+    """卖出后等成交（有上限），再去买。
+
+    不等的后果是历史事故：先挂卖单、马上按「卖出所得」下买单，卖单还没成交，
+    买单因为可用资金不足被集体拒掉（2026-11-20 一天 27 笔 Insufficient Credit Limit）。
+    """
+    import time
+
+    if os.environ.get("EXEC_WAIT_SELLS", "1") == "0" or not symbols:
+        return {}
+    deadline = time.time() + max(0.0, timeout)
+    last: dict[str, dict] = {}
+    while True:
+        try:
+            rows = _cli(["order"]) or []
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            print(f"[exec] 等待卖出成交时查询失败（继续等）: {type(exc).__name__}")
+            rows = None
+        if rows is not None:
+            status = {}
+            for o in rows:
+                sym = broker_symbol(o.get("symbol") or "")
+                if not sym:
+                    continue
+                for want in symbols:
+                    if broker_symbol(want) == sym:
+                        status[want] = {"status": o.get("status"),
+                                        "filled": float(o.get("executed_quantity") or 0),
+                                        "qty": float(o.get("quantity") or 0)}
+            last = status
+            pending = [s2 for s2, st in status.items() if st.get("status") in WORKING_STATUSES]
+            if not pending:
+                break
+        if time.time() >= deadline:
+            print(f"[exec] 卖出等待超时（{timeout:.0f}s），仍有未成交：{sorted(last)[:5]}")
+            break
+        time.sleep(interval)
+    return last
+
+
 def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_share: float = 1.0,
             pass_no: int = 1) -> dict:
     policy = policy or Policy()
@@ -394,25 +439,37 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
                 "reason": "该快照/交易日已提交过（一次消费），本交易日不再重复下单", "orders": []}
 
     results = []
-    for item in plan["orders"]:
+    def _submit(item: dict) -> dict:
         try:
             ledger.mark_submitting(key=key, plan_id=item["symbol"], intent_id=item["symbol"])
-            prev = _cli(["order", item["side"], broker_symbol(item["symbol"]), str(item["qty"]),
+            bsymbol = broker_symbol(item["symbol"])
+            prev = _cli(["order", item["side"], bsymbol, str(item["qty"]),
                          "--price", f"{item['price']:.3f}", "--order-type", "LO"])
             code = prev.get("confirmation_code")
             if not code:
                 ledger.mark_result(key=key, plan_id=item["symbol"], intent_id=item["symbol"],
                                    status="UNKNOWN")
-                results.append({**item, "status": "no-confirmation-code"})
-                continue
-            resp = _cli(["order", item["side"], broker_symbol(item["symbol"]), str(item["qty"]),
+                return {**item, "status": "no-confirmation-code"}
+            resp = _cli(["order", item["side"], bsymbol, str(item["qty"]),
                          "--price", f"{item['price']:.3f}", "--order-type", "LO", "--execute", code])
             oid = resp.get("order_id")
             ledger.mark_result(key=key, plan_id=item["symbol"], intent_id=item["symbol"],
                                status="WORKING" if oid else "UNKNOWN")
-            results.append({**item, "status": "submitted" if oid else "unknown", "order_id": oid})
-        except (StateConflict, Exception) as exc:  # noqa: BLE001
-            results.append({**item, "status": f"error: {str(exc)[:80]}"})
+            return {**item, "status": "submitted" if oid else "unknown", "order_id": oid}
+        except Exception as exc:  # noqa: BLE001 - 单笔失败不影响其余，逐笔记账
+            return {**item, "status": f"error: {str(exc)[:80]}"}
+
+    sells = [o for o in plan["orders"] if o["side"] == "sell"]
+    buys = [o for o in plan["orders"] if o["side"] == "buy"]
+    for item in sells:
+        results.append(_submit(item))
+
+    # 先卖后买之间插入「有上限的等待」，避免买单因资金未到账被集体拒掉
+    if sells and buys and any(r.get("status") == "submitted" for r in results):
+        plan["sell_wait"] = _wait_sells({o["symbol"] for o in sells})
+
+    for item in buys:
+        results.append(_submit(item))
     plan["results"] = results
     if not any(r.get("order_id") for r in results):
         # 一笔都没落地（网络/权限/拒单）：把当日额度放回去，避免计划被白烧掉
