@@ -107,6 +107,15 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
     Run-Step "risk_act_hk_exec" { python scripts/risk_act.py --market hk --execute }
 }
 
+Write-Host "=== 8b/9 第二轮补单（换手上限导致一轮做不完时）==="
+if ($simHkOk) {
+    python scripts/weight_drift.py --markets hk | Out-Null
+    if ($LASTEXITCODE -eq 1) {
+        Write-Host "[warn] 仍有漂移，尝试当日第二轮补单（最多两轮）"
+        Run-Step "execute_hk_pass2" { python -m quant.automation.execution --market hk --execute --pass 2 }
+    }
+}
+
 Write-Host "=== 8c/9 执行对账（港股）==="
 Run-Step "reconcile_hk" { python scripts/reconcile_today.py --market hk }
 Run-Step "weight_drift" { python scripts/weight_drift.py --markets us,hk }

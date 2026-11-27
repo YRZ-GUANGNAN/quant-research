@@ -32,12 +32,15 @@ class StateConflict(LedgerError):
     pass
 
 
-def consumption_key(*, market: str, snapshot_id: str, eligible_execution_session: str) -> str:
+def consumption_key(*, market: str, snapshot_id: str, eligible_execution_session: str,
+                    pass_no: int = 1) -> str:
+    """一次消费的键。pass_no 允许同一交易日内有限次补单（换手上限导致一轮做不完）。"""
     payload = {
         "environment": "paper",
         "market": market,
         "snapshot_id": snapshot_id,
         "eligible_execution_session": eligible_execution_session,
+        "pass_no": int(pass_no),
     }
     return sha256_hex(canonical_json_bytes(payload))
 

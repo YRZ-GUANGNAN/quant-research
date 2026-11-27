@@ -278,7 +278,8 @@ def _build_proxy_plan(market: str, policy: Policy, cash_share: float = 1.0) -> d
             "snapshot_rebalance_date": "proxy", "snapshot_next": "2099-12-31"}
 
 
-def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_share: float = 1.0) -> dict:
+def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_share: float = 1.0,
+            pass_no: int = 1) -> dict:
     policy = policy or Policy()
     if not dry_run:
         if os.environ.get("LB_ALLOW_EXECUTION") != "1":
@@ -314,7 +315,7 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
 
     session = datetime.now(timezone.utc).date().isoformat()
     key = consumption_key(market=market, snapshot_id=str(plan["snapshot_rebalance_date"]),
-                          eligible_execution_session=session)
+                          eligible_execution_session=session, pass_no=pass_no)
     ledger = Ledger(LEDGER_ROOT)
     try:
         ledger.bind_plan(key=key, plan_id=f"{market}-{plan['snapshot_rebalance_date']}")
@@ -359,9 +360,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--execute", action="store_true", help="真正提交（还需 LB_ALLOW_EXECUTION=1）")
     ap.add_argument("--cash-share", type=float, default=1.0,
                     help="本袖套可使用的现金份额（0-1），用于多袖套分配")
+    ap.add_argument("--pass", dest="pass_no", type=int, default=1,
+                    help="当日第几轮补单（1=首轮，2=换手上限导致的补单，最多 2）")
     args = ap.parse_args(argv)
 
-    result = execute(args.market, dry_run=not args.execute, cash_share=args.cash_share)
+    if args.pass_no not in (1, 2):
+        print("[exec] --pass 只允许 1 或 2（一天最多两轮，避免过度换手）")
+        return 1
+    result = execute(args.market, dry_run=not args.execute, cash_share=args.cash_share,
+                     pass_no=args.pass_no)
     print(json.dumps(result, ensure_ascii=False, indent=2)[:4000])
     if result.get("blocked"):
         # 非交易时段 / 本日已消费：预期内的跳过，不算失败（自动化里 exit 1 只留给真故障）

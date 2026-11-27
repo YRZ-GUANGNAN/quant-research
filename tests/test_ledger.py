@@ -46,3 +46,10 @@ def test_chain_verify_and_tamper_detection(tmp_path) -> None:
     data = ev.read_text(encoding="utf-8")
     ev.write_text(data.replace('"plan_id": "p"', '"plan_id": "tampered"'), encoding="utf-8")
     assert led.verify_chain() is False
+
+
+def test_pass_no_changes_consumption_key():
+    """同一交易日的第二轮补单是独立的一次消费，但不能与首轮撞键。"""
+    base = {"market": "hk", "snapshot_id": "s1", "eligible_execution_session": "2026-11-27"}
+    assert consumption_key(**base, pass_no=1) != consumption_key(**base, pass_no=2)
+    assert consumption_key(**base, pass_no=1) == consumption_key(**base)

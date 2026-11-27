@@ -94,6 +94,15 @@ if ($env:RISK_ALLOW_EXECUTION -eq "1") {
     Run-Step "risk_act_us_exec" { python scripts/risk_act.py --market us --execute }
 }
 
+Write-Host "=== 5b/8 第二轮补单（换手上限导致一轮做不完时）==="
+if ($simOk) {
+    python scripts/weight_drift.py --markets us | Out-Null
+    if ($LASTEXITCODE -eq 1) {
+        Write-Host "[warn] 仍有漂移，尝试当日第二轮补单（最多两轮）"
+        Run-Step "exec_us_pass2" { python -m quant.automation.execution --market us --execute --cash-share 0.35 --pass 2 }
+    }
+}
+
 Write-Host "=== 6/8 执行对账（期望 vs 实际）==="
 Run-Step "reconcile_us" { python scripts/reconcile_today.py --market us }
 Run-Step "weight_drift" { python scripts/weight_drift.py --markets us }
