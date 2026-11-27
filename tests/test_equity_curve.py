@@ -70,3 +70,15 @@ def test_load_nav_skips_bad_rows(tmp_path: Path):
                  encoding="utf-8")
     nav = ec.load_nav(p)
     assert nav == {"us": [("2026-11-01", 100.0), ("2026-11-02", 105.0)]}
+
+
+def test_combined_series_excludes_model_track():
+    """合计只算券商账户三市场，模型轨道（cn_model）不并入。"""
+    nav = {
+        "us": [("2026-11-02", 100.0), ("2026-11-03", 110.0)],
+        "hk": [("2026-11-02", 200.0), ("2026-11-03", 200.0)],
+        "cn": [("2026-11-02", 50.0), ("2026-11-03", 60.0)],
+        "cn_model": [("2026-11-03", 999999.0)],
+    }
+    combined = ec.combined_series(nav)
+    assert [v for _, v in combined] == [350.0, 370.0]

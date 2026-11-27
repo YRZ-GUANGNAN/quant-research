@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
 TRADING_DAYS = 252
+COMBINED_MARKETS = ("us", "hk", "cn")   # 合计只算券商实盘账户；cn_model 是模型轨道，不并入
 
 
 def load_nav(path: Path | None = None) -> dict[str, list[tuple[str, float]]]:
@@ -82,7 +83,12 @@ def series_metrics(rows: list[tuple[str, float]]) -> dict:
 
 
 def combined_series(nav: dict[str, list[tuple[str, float]]]) -> list[tuple[str, float]]:
-    """合计曲线：只取所有市场都有数据的日期（缺一天就跳过，避免假跳变）。"""
+    """合计曲线：只取券商账户各市场都有数据的日期（缺一天就跳过，避免假跳变）。
+
+    模型轨道（cn_model）和其他记录不并入合计——它和券商账户资金规模不同，
+    混在一起算出来的「总收益」没有意义。
+    """
+    nav = {m: rows for m, rows in nav.items() if m in COMBINED_MARKETS}
     if not nav:
         return []
     per = {m: dict(rows) for m, rows in nav.items()}

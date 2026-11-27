@@ -120,6 +120,20 @@ def main() -> int:
         print(f"  最大回撤   : {mdd * 100:.2f}%")
     print(f"  状态文件   : {PaperState.path()}")
 
+    # 把模型账户净值按「当日快照」写入统一净值曲线（市场名 cn_model）。
+    # 只写当前交易日，不回灌历史：晋级闸门统计的是「往后跑了多少天实盘」，
+    # 把回测历史灌进去等于自己给自己刷天数。
+    try:
+        from quant.automation.replace import record_nav
+
+        _root = Path(__file__).resolve().parents[1]
+        record_nav(_root / "reports" / "nav_history.csv", market="cn_model",
+                   equity=state.equity(), cash=state.cash, positions=len(state.positions),
+                   on=str(state.last_date))
+        print(f"  净值曲线   : reports/nav_history.csv [cn_model {state.last_date}]")
+    except Exception as exc:  # noqa: BLE001 - 净值记录失败不该中断日更
+        print(f"  [warn] 净值记录失败: {type(exc).__name__} {exc}")
+
     if state.positions:
         print("\n  当前持仓（前 10）：")
         rows = sorted(state.positions.items(), key=lambda kv: -kv[1]["shares"] * kv[1]["last_price"])[:10]
