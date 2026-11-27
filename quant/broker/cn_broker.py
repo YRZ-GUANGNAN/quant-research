@@ -574,132 +574,69 @@ def plan_orders(
     limits: Limits | None = None,
     sent: set[tuple[str, str]] | None = None,
 ) -> tuple[list[dict], list[str]]:
-    """纯计算：目标权重 vs 当前持仓 → 先卖后买的委托清单（不碰下单接口）。
+    """A 股算单：委托给通用再平衡器（避免两套算单逻辑各自漂移）。
 
-    holdings: {code: {"qty": 持仓股数, "sellable": 可卖股数(T+1), "price": 现价}}
-    prices:   未持有标的的参考价
-    sent:     今日已提交的 (代码, 方向)，命中则跳过（重试幂等）
-    返回 (委托清单, 说明)
+    与美股/港股共用 `plan_rebalance`，差异用参数表达：
+    - 整手 100 股、A 股 3000 元最小买单 / 2000 元最小卖单；
+    - T+1：可卖数量取「可用余额」，当天买入的不许卖；
+    - 单票目标权重上限 30%。
+
+    holdings: {code: {"qty": 持仓, "sellable": 可卖, "price": 现价}}
     """
+    from quant.automation.rebalance import Limits as RebLimits
+    from quant.automation.rebalance import plan_rebalance
+
     limits = limits or Limits()
     prices = prices or {}
-    sent = sent or set()
-    lot = limits.lot_size
-    notes: list[str] = []
     holdings = holdings or {}
     if equity <= 0:
-        equity = cash + sum(int(h.get("qty") or 0) * float(h.get("price") or 0) for h in holdings.values())
+        equity = cash + sum(int(h.get("qty") or 0) * float(h.get("price") or 0)
+                            for h in holdings.values())
 
-    def px(code: str) -> float:
-        h = holdings.get(code) or {}
-        p = float(h.get("price") or 0)
-        return p if p > 0 else float(prices.get(code) or 0)
-
-    sells: list[dict] = []
-    buys: list[dict] = []
-    proceeds = 0.0
-
-    # 1) 清仓：持仓里但不在目标权重中
+    # 统一成通用算单器的入参形态
+    pos_qty: dict[str, float] = {}
+    sellable: dict[str, float] = {}
+    px: dict[str, float] = {}
     for code, h in holdings.items():
-        if code in weights:
-            continue
-        price, qty = px(code), int(h.get("sellable") or 0)
+        qty = float(h.get("qty") or 0)
+        pos_qty[code] = qty
+        sellable[code] = float(h.get("sellable") or 0)
+        price = float(h.get("price") or 0)
         if price <= 0:
-            notes.append(f"{code} 清仓跳过：无参考价")
-            continue
-        if qty <= 0:
-            notes.append(f"{code} 清仓跳过：无可卖数量（T+1 或已冻结）")
-            continue
-        notional = qty * price
-        if notional < limits.min_order_notional_cny:
-            notes.append(f"{code} 清仓跳过：金额 {notional:.0f} < {limits.min_order_notional_cny:.0f}")
-            continue
-        sells.append({"code": code, "side": "sell", "qty": qty, "ref_price": round(price, 2),
-                      "notional": round(notional, 2), "reason": "exit"})
-        proceeds += notional
+            price = float(prices.get(code) or 0)
+        if price > 0:
+            px[code] = price
+    for code in weights:
+        if code not in px and float(prices.get(code) or 0) > 0:
+            px[code] = float(prices[code])
 
-    # 2) 减仓（目标低于当前）
-    for code, w in weights.items():
-        price = px(code)
-        if price <= 0:
-            continue
-        h = holdings.get(code) or {}
-        cur_qty = int(h.get("qty") or 0)
-        sellable = int(h.get("sellable") or 0)
-        w = min(float(w), limits.max_position_weight)
-        gap = equity * w - cur_qty * price
-        if gap >= 0 or sellable <= 0:
-            continue
-        qty = min(int(-gap / price) // lot * lot, sellable // lot * lot)
-        if qty <= 0:
-            continue
-        notional = qty * price
-        if notional < limits.min_order_notional_cny:
-            continue
-        sells.append({"code": code, "side": "sell", "qty": qty, "ref_price": round(price, 2),
-                      "notional": round(notional, 2), "reason": "trim"})
-        proceeds += notional
+    reb = RebLimits(
+        lot_size=limits.lot_size,
+        min_notional=limits.min_order_notional_cny,
+        min_buy_notional=limits.min_buy_notional_cny,
+        max_order_notional=limits.max_order_notional_cny,
+        max_orders=limits.max_orders_per_run,
+        max_position_weight=limits.max_position_weight,
+        cash_buffer=limits.cash_buffer,
+        trim_tolerance=0.0,          # A 股：超目标就减，不做容忍带
+        orphan_min_weight=0.0,       # A 股：目标外一律清（金额门槛已由 min_notional 兜住）
+        orphan_max_turnover=1.0,     # A 股：单账户小，不做换手上限
+        fee_reserve=0.002,           # 佣金+过户费，留 0.2% 足够
+    )
 
-    # 3) 加仓（卖出所得当日可继续买入）
-    cash_left = cash + proceeds - cash * limits.cash_buffer
-    for code, w in weights.items():
-        price = px(code)
-        if price <= 0:
-            notes.append(f"{code} 加仓跳过：无参考价")
-            continue
-        w = min(float(w), limits.max_position_weight)
-        h = holdings.get(code) or {}
-        gap = equity * w - int(h.get("qty") or 0) * price
-        if gap <= 0:
-            continue
-        qty = int(gap / price) // lot * lot
-        if qty * price > cash_left:
-            qty = int(cash_left / price) // lot * lot
-        notional = qty * price
-        if qty <= 0 or notional < limits.min_buy_notional_cny:
-            continue
-        cash_left -= notional
-        buys.append({"code": code, "side": "buy", "qty": qty, "ref_price": round(price, 2),
-                     "notional": round(notional, 2), "reason": "open" if int(h.get("qty") or 0) == 0 else "add"})
+    plan, notes = plan_rebalance(
+        weights, cash=cash, capital=equity, holdings=pos_qty, prices=px,
+        limits=reb, sent=sent, sellable=sellable, normalize=False,
+    )
 
-    def _tranches(order: dict) -> list[dict]:
-        """单笔超上限时拆成多笔小单（A 股按 100 股整手），避免整票被丢掉。"""
-        cap = limits.max_order_notional_cny
-        if order["notional"] <= cap:
-            return [order]
-        cap_qty = int(cap / order["ref_price"]) // lot * lot
-        if cap_qty <= 0:
-            notes.append(f"{order['code']} 单笔超上限且不足一手，跳过")
-            return []
-        out, left = [], order["qty"]
-        while left > 0:
-            q = min(cap_qty, left) // lot * lot
-            if q <= 0:
-                break
-            out.append({**order, "qty": q, "notional": round(q * order["ref_price"], 2)})
-            left -= q
-        return out
-
-    plan: list[dict] = []
-    total = 0.0
-    for order in sells + buys:  # 先卖后买
-        if (order["code"], order["side"]) in sent:
-            notes.append(f"{order['code']} {order['side']} 今日已提交，跳过")
-            continue
-        added = False
-        for tr in _tranches(order):
-            if len(plan) >= limits.max_orders_per_run:
-                notes.append(f"达到单轮上限 {limits.max_orders_per_run} 笔，其余顺延")
-                return plan, notes
-            if total + tr["notional"] > limits.max_notional_per_day_cny:
-                notes.append(f"达到当日金额上限 {limits.max_notional_per_day_cny:.0f}，其余顺延")
-                return plan, notes
-            total += tr["notional"]
-            plan.append(tr)
-            added = True
-        if not added:
-            continue
-    return plan, notes
+    # 映射回 A 股的字段名，并换算回参考价（下单时再按缓冲取限价）
+    out = []
+    for o in plan:
+        price = px.get(o["symbol"], 0.0)
+        out.append({"code": o["symbol"], "side": o["side"], "qty": int(o["qty"]),
+                    "ref_price": round(price, 2), "notional": o["notional"],
+                    "reason": o["reason"]})
+    return out, notes
 
 
 def execute_target(weights: dict[str, float], *, dry_run: bool, limits: Limits | None = None,

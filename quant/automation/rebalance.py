@@ -18,6 +18,7 @@ from dataclasses import dataclass
 class Limits:
     lot_size: int = 1
     min_notional: float = 300.0        # 小于这个金额不动手（手续费不划算）
+    min_buy_notional: float | None = None   # 买单单独的门槛（A 股 3000 元），None=沿用 min_notional
     max_order_notional: float = 50_000.0
     max_orders: int = 40
     max_position_weight: float = 1.0   # 单票权重上限（1.0=不限制）
@@ -38,6 +39,8 @@ def plan_rebalance(
     prices: dict[str, float],
     limits: Limits | None = None,
     sent: set[tuple[str, str]] | None = None,
+    sellable: dict[str, float] | None = None,
+    normalize: bool = True,
 ) -> tuple[list[dict], list[str]]:
     """返回 (委托清单, 说明)。
 
@@ -52,9 +55,25 @@ def plan_rebalance(
     notes: list[str] = []
 
     w_sum = sum(v for v in targets.values() if v > 0)
-    if w_sum <= 0 or capital <= 0:
-        return [], ["目标权重或资本为空"]
-    w = {k: v / w_sum for k, v in targets.items() if v > 0}
+    if capital <= 0:
+        return [], ["资本为空，无法算单"]
+    if w_sum <= 0:
+        # 目标为空 = 清仓到现金（而不是什么都不做）
+        w_sum = 1.0
+    # normalize=True：权重只描述组合结构（袖套口径）；False：权重是绝对占比（A 股口径，
+    # 0.11 就是 11% 权益，不能归一成 100%）。
+    w = ({k: v / w_sum for k, v in targets.items() if v > 0} if normalize
+         else {k: v for k, v in targets.items() if v > 0})
+
+    min_buy = limits.min_buy_notional if limits.min_buy_notional else limits.min_notional
+    sellable = sellable or {}
+
+    def can_sell(sym: str, qty: float) -> float:
+        """可卖数量上限（A 股 T+1：当天买入不可卖）。"""
+        cap = sellable.get(sym)
+        if cap is None:
+            return qty
+        return min(qty, float(cap))
 
     def px(sym: str) -> float:
         return float(prices.get(sym) or 0.0)
@@ -79,8 +98,9 @@ def plan_rebalance(
             notes.append(f"{sym} 清仓顺延：本轮换手已达上限")
             continue
         orphan_sold += value
-        units = int(qty) // lot * lot
+        units = int(can_sell(sym, qty)) // lot * lot
         if units <= 0:
+            notes.append(f"{sym} 无可卖数量（T+1 或冻结），暂不处理")
             continue
         sells.append({"symbol": sym, "side": "sell", "qty": units,
                       "notional": round(units * p, 2), "reason": "exit"})
@@ -97,7 +117,7 @@ def plan_rebalance(
         if excess <= capital * limits.trim_tolerance:
             continue
         units = int(excess / p) // lot * lot
-        units = min(units, int(qty))
+        units = min(units, int(can_sell(sym, qty)))
         if units <= 0 or units * p < limits.min_notional:
             continue
         sells.append({"symbol": sym, "side": "sell", "qty": units,
@@ -120,7 +140,7 @@ def plan_rebalance(
         if units * p > available:
             units = int(available / p) // lot * lot
         value = units * p
-        if units <= 0 or value < limits.min_notional:
+        if units <= 0 or value < min_buy:
             continue
         available -= value
         buys.append({"symbol": sym, "side": "buy", "qty": units,
@@ -159,6 +179,7 @@ def plan_rebalance(
     plan: list[dict] = []
     for order in sells:
         if (order["symbol"], order["side"]) in sent:
+            notes.append(f"{order['symbol']} {order['side']} 今日已提交，跳过")
             continue
         # 卖单不拆：清仓/减仓本身是一笔合法整单，拆开只会吃掉笔数配额
         for tr in [order]:
@@ -168,6 +189,7 @@ def plan_rebalance(
             plan.append(tr)
     for order in buys:
         if (order["symbol"], order["side"]) in sent:
+            notes.append(f"{order['symbol']} {order['side']} 今日已提交，跳过")
             continue
         for tr in tranches(order):
             if len(plan) >= limits.max_orders:
