@@ -33,8 +33,26 @@ LB = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "longbridge" / "lon
 DESIGN_WEIGHTS = {"us": 0.60, "hk": 0.20, "cn": 0.20}
 IDLE_WARN = 0.10        # 闲置现金超过 10% 就报警
 DEVIATION_WARN = 0.15   # 实际权重与设计权重偏离超过 15pp 报警
-# 粗略汇率（仅用于量级判断；不参与下单）
-FX_TO_USD = {"USD": 1.0, "HKD": 0.1285, "CNY": 0.1408, "SGD": 0.7450}
+# 汇率：优先用券商实时牌价（longbridge exchange-rate），取不到才回落到静态表。
+# 静态表曾把 SGD 低估 15%（0.745 vs 实际 0.878），足以让「闲置资金」这类结论失真。
+FX_TO_USD = {"USD": 1.0, "HKD": 0.1429, "CNY": 0.1408, "SGD": 0.8777, "CNH": 0.1408}
+
+
+def live_fx() -> dict[str, float]:
+    """从 exchange-rate 拉 HKD 基准牌价，折算成「1 单位外币 = 多少 USD」。"""
+    try:
+        raw = _cli(["exchange-rate"]) or {}
+    except (RuntimeError, json.JSONDecodeError, subprocess.SubprocessError):
+        return dict(FX_TO_USD)
+    rows = (raw.get("exchanges") if isinstance(raw, dict) else raw) or []
+    hkd_per = {r.get("other_currency"): float(r.get("average_rate") or 0)
+               for r in rows if r.get("base_currency") == "HKD"}
+    usd_per_hkd = 1.0 / hkd_per.get("USD", 7.0)
+    out = {"USD": 1.0}
+    for ccy, rate in hkd_per.items():
+        if ccy and rate:
+            out[ccy] = round(rate * usd_per_hkd, 6)
+    return {**FX_TO_USD, **out}
 
 
 def _cli(args: list[str], timeout: int = 60) -> object:
@@ -46,8 +64,11 @@ def _cli(args: list[str], timeout: int = 60) -> object:
     return json.loads(out) if out else {}
 
 
+RATES: dict[str, float] = dict(FX_TO_USD)
+
+
 def to_usd(amount: float, ccy: str) -> float:
-    return float(amount) * FX_TO_USD.get(str(ccy).upper(), 1.0)
+    return float(amount) * RATES.get(str(ccy).upper(), 1.0)
 
 
 def summarize(assets: list[dict], positions_value_by_market: dict[str, float]) -> dict:
@@ -107,12 +128,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
+    global RATES
+    RATES = live_fx()
     try:
         assets = _cli(["assets"]) or []
     except (RuntimeError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
         print(f"[capital] 取不到账户资产: {type(exc).__name__} {str(exc)[:100]}")
         return 3
+    acct = (assets[0] if isinstance(assets, list) and assets else {}) or {}
     report = {"generated_at": datetime.now().isoformat(timespec="seconds"),
+              "fx_rates": RATES,
+              "buy_power_usd": acct.get("buy_power"),
+              "risk_level": acct.get("risk_level"),
               **summarize(assets if isinstance(assets, list) else [assets], positions_by_market())}
 
     problems = []
