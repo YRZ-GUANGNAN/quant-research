@@ -55,6 +55,10 @@ function Run-Step([string]$desc, [scriptblock]$cmd) {
     }
 }
 
+Write-Host "=== 0/9 开跑前自检（凭证/磁盘/通道）==="
+python scripts/preflight.py
+if ($LASTEXITCODE -ne 0) { Write-Host "[warn] 自检有硬阻断项，下单步骤预计会失败，见 reports/preflight.json" }
+
 Write-Host "=== 1/8 更新美股行情（Yahoo）==="
 Run-Step "fetch_us" { python scripts/fetch_market.py --market us }
 
