@@ -374,6 +374,27 @@ def _buy_power(ccy: str) -> float | None:
     return None
 
 
+
+def place_order(side: str, symbol: str, qty: float, price: float) -> dict:
+    """统一的 Longbridge 下单动作：预演拿确认码 → 用确认码真正提交。
+
+    执行层和风控层都必须走这里。之前两边各写一遍，结果：
+    - 风控忘了把 BRK-B.US 换成券商要的 BRK.B.US；
+    - 风控没有在途委托/购买力保护（2026-11-27 修）。
+    """
+    bsymbol = broker_symbol(symbol)
+    prev = _cli(["order", side, bsymbol, str(int(qty)), "--price", f"{float(price):.3f}",
+                 "--order-type", "LO"])
+    code = prev.get("confirmation_code") if isinstance(prev, dict) else None
+    if not code:
+        return {"symbol": symbol, "side": side, "status": "no-confirmation-code"}
+    resp = _cli(["order", side, bsymbol, str(int(qty)), "--price", f"{float(price):.3f}",
+                 "--order-type", "LO", "--execute", code])
+    oid = resp.get("order_id") if isinstance(resp, dict) else None
+    return {"symbol": symbol, "side": side,
+            "status": "submitted" if oid else "unknown", "order_id": oid}
+
+
 def _wait_sells(symbols: set[str], *, timeout: float = 90.0, interval: float = 6.0) -> dict:
     """卖出后等成交（有上限），再去买。
 
@@ -463,20 +484,10 @@ def execute(market: str, *, dry_run: bool, policy: Policy | None = None, cash_sh
     def _submit(item: dict) -> dict:
         try:
             ledger.mark_submitting(key=key, plan_id=item["symbol"], intent_id=item["symbol"])
-            bsymbol = broker_symbol(item["symbol"])
-            prev = _cli(["order", item["side"], bsymbol, str(item["qty"]),
-                         "--price", f"{item['price']:.3f}", "--order-type", "LO"])
-            code = prev.get("confirmation_code")
-            if not code:
-                ledger.mark_result(key=key, plan_id=item["symbol"], intent_id=item["symbol"],
-                                   status="UNKNOWN")
-                return {**item, "status": "no-confirmation-code"}
-            resp = _cli(["order", item["side"], bsymbol, str(item["qty"]),
-                         "--price", f"{item['price']:.3f}", "--order-type", "LO", "--execute", code])
-            oid = resp.get("order_id")
+            placed = place_order(item["side"], item["symbol"], item["qty"], item["price"])
             ledger.mark_result(key=key, plan_id=item["symbol"], intent_id=item["symbol"],
-                               status="WORKING" if oid else "UNKNOWN")
-            return {**item, "status": "submitted" if oid else "unknown", "order_id": oid}
+                               status="WORKING" if placed.get("order_id") else "UNKNOWN")
+            return {**item, **placed}
         except Exception as exc:  # noqa: BLE001 - 单笔失败不影响其余，逐笔记账
             return {**item, "status": f"error: {str(exc)[:80]}"}
 

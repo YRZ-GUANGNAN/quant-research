@@ -52,3 +52,41 @@ def test_buy_power_helper_handles_failure(monkeypatch):
         raise RuntimeError("network")
     monkeypatch.setattr(execution, "_cli", boom)
     assert execution._buy_power("USD") is None
+
+
+def test_place_order_maps_dashed_symbol(monkeypatch):
+    """下单必须把 BRK-B.US 换成券商要的 BRK.B.US。"""
+    seen = []
+
+    def fake_cli(args, timeout=40):
+        seen.append(args[:4])
+        if "--execute" in args:
+            return {"order_id": "123"}
+        return {"confirmation_code": "42"}
+
+    monkeypatch.setattr(execution, "_cli", fake_cli)
+    out = execution.place_order("buy", "BRK-B.US", 10, 500.0)
+    assert out["status"] == "submitted" and out["order_id"] == "123"
+    assert all("BRK.B.US" in s for s in seen)
+
+
+def test_place_order_without_confirmation_code(monkeypatch):
+    monkeypatch.setattr(execution, "_cli", lambda args, timeout=40: {})
+    out = execution.place_order("sell", "AAPL.US", 5, 190.0)
+    assert out["status"] == "no-confirmation-code"
+
+
+def test_risk_uses_shared_place_order(monkeypatch):
+    """风控下单也必须走统一实现（否则又会漏掉符号映射）。"""
+    from quant.automation import risk_execute as rx
+
+    called = []
+
+    def fake_place(side, symbol, qty, price):
+        called.append((side, symbol, qty, price))
+        return {"symbol": symbol, "side": side, "status": "submitted", "order_id": "1"}
+
+    monkeypatch.setattr(execution, "place_order", fake_place)
+    out = rx._lb_submit(rx.OrderPlan("BRK-B.US", "buy", 10, 500.0, "replace", ""))
+    assert called == [("buy", "BRK-B.US", 10, 500.0)]
+    assert out["status"] == "submitted"

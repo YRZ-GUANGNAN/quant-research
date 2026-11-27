@@ -83,19 +83,10 @@ def to_orders(actions, positions: dict[str, dict], quotes: dict[str, dict],
 
 
 def _lb_submit(order: OrderPlan) -> dict:
-    args = ["order", order.side, order.symbol, str(int(order.qty)), "--price", f"{order.price:.3f}"]
-    prev = json.loads(subprocess.run([str(LB), *args, "--format", "json"],
-                                     capture_output=True, text=True, encoding="utf-8",
-                                     errors="replace", timeout=60).stdout or "{}")
-    code = prev.get("confirmation_code")
-    if not code:
-        return {"symbol": order.symbol, "status": "no-confirmation-code"}
-    resp = json.loads(subprocess.run([str(LB), *args, "--execute", code, "--format", "json"],
-                                     capture_output=True, text=True, encoding="utf-8",
-                                     errors="replace", timeout=60).stdout or "{}")
-    return {"symbol": order.symbol, "side": order.side,
-            "status": "submitted" if resp.get("order_id") else "unknown",
-            "order_id": resp.get("order_id")}
+    """美股/港股下单：走执行层的统一实现（含券商符号映射与确认码流程）。"""
+    from quant.automation.execution import place_order
+
+    return place_order(order.side, order.symbol, order.qty, order.price)
 
 
 def _cn_submit(order: OrderPlan) -> dict:
