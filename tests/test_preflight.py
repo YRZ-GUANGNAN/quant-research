@@ -83,3 +83,21 @@ def test_run_blocked_when_token_expired(monkeypatch):
     report = pf.run(now=NOW)
     assert report["status"] == "BLOCKED"
     assert any("Longbridge" in b for b in report["blocked"])
+
+
+def test_clean_temp_removes_old_files_only(monkeypatch, tmp_path):
+    import os
+    import time
+
+    old = tmp_path / "old.tmp"
+    new = tmp_path / "new.tmp"
+    old.write_text("x" * 1024, encoding="utf-8")
+    new.write_text("y", encoding="utf-8")
+    past = time.time() - 10 * 86400
+    os.utime(old, (past, past))
+    monkeypatch.setattr(pf.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    result = pf.clean_temp(min_age_days=3)
+    assert result["removed"] == 1
+    assert not old.exists()
+    assert new.exists()

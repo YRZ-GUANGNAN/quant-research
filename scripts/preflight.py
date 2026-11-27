@@ -115,6 +115,35 @@ def lb_token_text() -> str:
         return ""
 
 
+
+def clean_temp(min_age_days: int = 3) -> dict:
+    """清理用户临时目录里 3 天以上没动过的文件（in-use 的跳过）。
+
+    C 盘满了会导致 pip/剪贴板/模型缓存全部失败，而且报错信息完全看不出是磁盘问题。
+    """
+    import tempfile
+    import time
+
+    root = Path(tempfile.gettempdir())
+    cutoff = time.time() - min_age_days * 86400
+    freed = removed = skipped = 0
+    for f in root.rglob("*"):
+        try:
+            if not f.is_file():
+                continue
+            st = f.stat()
+            if st.st_mtime >= cutoff:
+                continue
+            size = st.st_size
+            f.unlink()
+            freed += size
+            removed += 1
+        except (OSError, PermissionError):
+            skipped += 1   # 被占用/无权限：跳过，不影响其它文件
+    return {"root": str(root), "removed": removed, "skipped": skipped,
+            "freed_mb": round(freed / 1024 ** 2, 1)}
+
+
 def run(now: datetime | None = None) -> dict:
     tokens = parse_token_text(lb_token_text(), now)
     checks = [
@@ -133,8 +162,13 @@ def run(now: datetime | None = None) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="开跑前自检")
     ap.add_argument("--json", action="store_true", help="只输出 JSON")
+    ap.add_argument("--clean", action="store_true", help="先清理临时目录里 3 天以上的文件")
     args = ap.parse_args(argv)
 
+    if args.clean:
+        cleaned = clean_temp()
+        print(f"[preflight] 清理临时文件 {cleaned['removed']} 个，释放 {cleaned['freed_mb']} MB"
+              f"（跳过 {cleaned['skipped']} 个占用中的）")
     report = run()
     out = REPORTS / "preflight.json"
     out.parent.mkdir(parents=True, exist_ok=True)
